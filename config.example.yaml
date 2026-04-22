@@ -1,0 +1,46 @@
+newsNow:
+  baseUrl: ""
+  sources:
+    china:
+      - ifeng
+      - thepaper
+      - tencent
+      - zaobao
+    social:
+      - baidu
+      - weibo
+      - zhihu
+      - douyin
+      - tieba
+      - hupu
+      - bilibili
+    tech:
+      - coolapk
+      - ithome
+      - solidot
+      - hackernews
+    world:
+      - sputniknewscn
+      - cankaoxiaoxi
+    finance:
+      - wallstreetcn-hot
+      - cls-hot
+      - jin10
+
+database:
+  path: "./data/trend.db"
+
+analysis:
+  historyHours: 24 # 分析最近24小时的数据
+
+llm:
+  baseUrl: "" # 兼容OpenAI API的URL，程序会自动拼接`/v1/chat/completions`
+  apiKey: "sk-xxx"
+  model: "deepseek-chat"
+  maxTokens: 4096
+
+pushers:
+  - type: unipush
+    url: ""
+    secret: "push-key"
+    channels: "misc"
