@@ -2,7 +2,7 @@
 
 ## 1. 目标
 
-本文档基于 [v1-design.md](/mnt/f/proj/TrendReporter2/v1-design.md) 和 [technical-design.md](/mnt/f/proj/TrendReporter2/technical-design.md)，将 V1 开发拆分为可执行的里程碑和任务清单。
+本文档基于 [v1-design.md](v1-design.md) 和 [technical-design.md](technical-design.md)，将 V1 开发拆分为可执行的里程碑和任务清单。
 
 拆分原则：
 

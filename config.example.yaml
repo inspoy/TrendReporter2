@@ -40,13 +40,19 @@ analysis:
     pushCount: 5 # 每次推送5个事件
   event: # 事件分析相关配置
     sourceCount: 3 # 信源阈值，至少需要3个不同的信源报道同一事件
-    rankThreshold: 3 # 排名阈值，3个信源报道同一事件时，所有信源中该事件排名的平均值必须小于等于3
-    trendThreshold: 6 # 趋势阈值，事件在最近6小时内热度分整体上升
+    normalizedRankThreshold: 0.75 # 排名阈值，使用源内归一化后的平均排名分
+    trendWindowHours: 6 # 趋势窗口，事件在最近6小时内热度分整体上升
     staleHours: 24 # 陈旧事件阈值，超过24小时（1天）未被新的信源报道的事件将被认为是陈旧事件
-    mergeThreshold: 0.75 # 事件合并阈值，使用文本相似度算法，当两个事件的相似度超过0.75时认为是同一事件，进行合并处理
+    archiveRecallDays: 30 # 陈旧事件召回窗口，避免旧事件后续被切成新事件
+    candidateLimit: 20 # 单条新闻最多保留多少个召回候选事件
+    mergeThreshold: 0.82 # 活跃事件在线归并阈值
+    staleMergeThreshold: 0.88 # 陈旧/复活事件在线归并阈值，应高于普通归并阈值
+    minTrendSamples: 3 # 判定趋势所需的最小样本数
+    minTrendHeat: 1.5 # 判定趋势所需的最小累计热度
   repeatPush: # 重复推送相关配置
     sourceAddThreshold: 2 # 信源增加阈值，事件被至少2个新的信源报道时二次推送
-    rankImproveThreshold: 3 # 排名提升阈值，事件排名提升至少3位时二次推送
+    rankScoreImproveThreshold: 0.15 # 归一化排名分提升阈值
+    scoreImproveThreshold: 12 # 综合分提升阈值
 
 llm:
   cluster:
@@ -59,11 +65,21 @@ llm:
     apiKey: "sk-xxx"
     model: "qwen3-max"
     maxTokens: 4096
+  writer:
+    mode: "local" # 本地小模型，优先用于简单摘要和文案润色
+    baseUrl: "http://127.0.0.1:11434/v1"
+    apiKey: ""
+    model: "qwen2.5-7b-instruct"
+    maxTokens: 1024
 
 tavily:
   apiKey: ""
   enabledSources: []
   maxRequestsPerRun: 5
+  minTitleLength: 14
+  onlyWhenRecallWeak: true
+  recallWeakScoreThreshold: 0.35
+  retryCooldownHours: 12
 
 filters:
   blacklistKeywords: []

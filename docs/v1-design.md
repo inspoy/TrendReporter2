@@ -110,7 +110,9 @@ V1 只会实际使用 `NewsEvent`，但底层数据结构预留 `Topic` 类型�
 V1 方案：
 
 - 默认不对所有新闻调用 Tavily
-- 仅对“标题信息不足”的新闻触发 Tavily 抓正文/摘要
+- 先基于 `Title + HoverText + 已有摘要` 做首轮召回
+- 仅对“标题信息不足且首轮召回偏弱”的新闻触发 Tavily 抓正文/摘要
+- 简单文本摘要与文案润色优先交给本地部署的小尺寸 LLM，避免消耗远端成本
 - 如果“标题是否充分”难以稳定判断，可支持对指定信源强制启用 Tavily
 
 建议配置扩展：
@@ -118,6 +120,8 @@ V1 方案：
 - `tavily.apiKey`
 - `tavily.enabledSources`
 - `tavily.maxRequestsPerRun`
+- `tavily.recallWeakScoreThreshold`
+- `llm.writer`
 
 ### 5.3 事件归并
 
@@ -127,21 +131,21 @@ V1 方案：
 
 策略：
 
-- 先基于标题、摘要、时间窗口做候选召回
+- 先基于标题、摘要、实体锚点、时间窗口做候选召回
 - 再交给 LLM 做归并辅助与核心判定
-- 归并策略允许偏激进，并通过配置暴露阈值，便于后续调参
+- 在线归并保持保守，并通过配置暴露阈值，便于后续调参
 
 归并原则：
 
 - 同一现实事件尽量合并
-- 误合并容忍度高于漏合并
+- V1 中误合并的代价高于漏合并
 - 陈旧事件再次出现时复用原事件，不创建新事件
 
 建议 LLM 输出结构：
 
 ```json
 {
-  "matched": true,
+  "decision": "same_event",
   "eventId": "optional-existing-event-id",
   "canonicalTitle": "string",
   "summary": "string",
@@ -154,8 +158,8 @@ V1 方案：
 
 重要事件的资格判定来自配置中的两条主规则，满足任一即可：
 
-1. 多信源同时出现且排名靠前
-2. 最近若干小时热度分整体上升
+1. 多信源同时出现且源内归一化排名靠前
+2. 最近若干小时平滑后的热度分整体上升，且满足最小样本门槛
 
 同时补充一条特殊规则：
 
@@ -175,7 +179,8 @@ V1 方案：
 重复推送触发条件：
 
 - 相比上次推送，新增信源数达到 `analysis.repeatPush.sourceAddThreshold`
-- 或事件平均排名提升达到 `analysis.repeatPush.rankImproveThreshold`
+- 或事件归一化排名分提升达到 `analysis.repeatPush.rankScoreImproveThreshold`
+- 或事件综合分提升达到 `analysis.repeatPush.scoreImproveThreshold`
 
 推送原则：
 
@@ -236,8 +241,8 @@ V1 更稳妥的做法是：
 
 事件具备重要性资格，当且仅当满足以下任一条件：
 
-- `uniqueSourceCount >= sourceCount` 且 `avgRank <= rankThreshold`
-- 最近 `trendThreshold` 小时内热度分整体上升
+- `uniqueSourceCount >= sourceCount` 且 `avgNormalizedRank >= normalizedRankThreshold`
+- 最近 `trendWindowHours` 小时内热度分整体上升，且趋势样本数与累计热度达到最小门槛
 - 事件属于陈旧复活事件
 
 ### 6.3 连续评分公式
@@ -276,18 +281,20 @@ TotalScore = 100 * (
 一个可落地的 V1 方案：
 
 ```text
-eventHeatAtTime = Σ(1 / rank)
+normalizedRankScore = 1 - (rank - 1) / max(sourceListSize - 1, 1)
+eventHeatAtTime = Σ(normalizedRankScore)
 ```
 
 说明：
 
 - 同一时刻，事件被越多信源报道，热度越高
 - 排名越靠前，贡献越高
-- 排名第一的贡献为 `1.0`，第二为 `0.5`，第三为 `0.333...`
+- 不同信源榜单长度不同，先做源内归一化再累加更稳妥
 
 趋势判定建议：
 
-- 比较最近 `N` 小时热度均值与更早窗口的热度均值
+- 对最近 `N` 小时热度做平滑，再比较最近窗口与更早窗口的热度均值
+- 必须设置最小样本门槛与最小累计热度门槛，避免“从 0 到 1”的偶然波动被误判成升温
 - 允许中间小幅波动，不要求严格单调
 - 只要整体趋势向上即可判定为“升温”
 
@@ -446,13 +453,19 @@ analysis:
     pushCount: 5
   event:
     sourceCount: 3
-    rankThreshold: 3
-    trendThreshold: 6
+    normalizedRankThreshold: 0.75
+    trendWindowHours: 6
     staleHours: 24
-    mergeThreshold: 0.75
+    archiveRecallDays: 30
+    candidateLimit: 20
+    mergeThreshold: 0.82
+    staleMergeThreshold: 0.88
+    minTrendSamples: 3
+    minTrendHeat: 1.5
   repeatPush:
     sourceAddThreshold: 2
-    rankImproveThreshold: 3
+    rankScoreImproveThreshold: 0.15
+    scoreImproveThreshold: 12
 
 llm:
   cluster:
@@ -465,11 +478,21 @@ llm:
     apiKey: ""
     model: ""
     maxTokens: 2048
+  writer:
+    mode: "local"
+    baseUrl: "http://127.0.0.1:11434/v1"
+    apiKey: ""
+    model: ""
+    maxTokens: 1024
 
 tavily:
   apiKey: ""
   enabledSources: []
-  maxRequestsPerRun: 20
+  maxRequestsPerRun: 5
+  minTitleLength: 14
+  onlyWhenRecallWeak: true
+  recallWeakScoreThreshold: 0.35
+  retryCooldownHours: 12
 
 filters:
   blacklistKeywords: []
@@ -477,9 +500,9 @@ filters:
 
 说明：
 
-- `llm` 建议拆分为 `cluster` 和 `judge`
+- `llm` 建议拆分为 `cluster`、`judge` 和本地 `writer`
 - `filters.blacklistKeywords` 用于推送降噪
-- `mergeThreshold` 用于暴露激进归并的调参入口
+- `mergeThreshold` 与 `staleMergeThreshold` 用于控制在线归并的保守程度
 
 ## 10. V1 实现优先级
 
@@ -505,15 +528,20 @@ filters:
 - 需要结构化 JSON 输出
 - 需要对非法输出、空输出、超时进行兜底
 
-### 11.3 激进归并的副作用
+### 11.3 保守归并的副作用
 
-- 可能产生误合并
-- 但对 V1 来说，可接受“少量误合并换取更少漏报”
+- 可能产生更多“同一事件被拆成多个事件”的情况
+- 但在 V1 没有二次归并任务的前提下，保守在线归并更容易控制整体质量
 
 ### 11.4 排名尺度差异
 
 - 不同信源的榜单长度、排序含义可能不同
-- V1 可先统一按相对靠前处理，后续再按信源加权
+- V1 应先做源内归一化，后续再按信源加权
+
+### 11.5 V1 暂不引入向量库与二次归并
+
+- 候选召回先采用倒排关键词 + 规则特征的轻量方案
+- 事件二次归并任务留到后续版本，再配合向量库提升召回效率
 
 ## 12. 结论
 
