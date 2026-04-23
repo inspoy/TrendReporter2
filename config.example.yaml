@@ -73,3 +73,9 @@ pushers:
     url: ""
     secret: "push-key"
     channels: "misc"
+
+system:
+  timeZone: "Asia/Shanghai"
+  maxParallelFetch: 4
+  maxParallelEnrichment: 2
+  maxParallelLlm: 2

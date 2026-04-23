@@ -163,7 +163,7 @@ TrendReporter2.sln
 
 ### 6.2 建议配置结构
 
-在现有 [config.example.yaml](/mnt/f/proj/TrendReporter2/config.example.yaml) 基础上，建议演进为：
+在现有 [config.example.yaml](../config.example.yaml) 基础上，建议演进为：
 
 ```yaml
 newsNow:
