@@ -43,15 +43,30 @@ analysis:
     rankThreshold: 3 # 排名阈值，3个信源报道同一事件时，所有信源中该事件排名的平均值必须小于等于3
     trendThreshold: 6 # 趋势阈值，事件在最近6小时内热度分整体上升
     staleHours: 24 # 陈旧事件阈值，超过24小时（1天）未被新的信源报道的事件将被认为是陈旧事件
+    mergeThreshold: 0.75 # 事件合并阈值，使用文本相似度算法，当两个事件的相似度超过0.75时认为是同一事件，进行合并处理
   repeatPush: # 重复推送相关配置
     sourceAddThreshold: 2 # 信源增加阈值，事件被至少2个新的信源报道时二次推送
     rankImproveThreshold: 3 # 排名提升阈值，事件排名提升至少3位时二次推送
 
 llm:
-  baseUrl: "" # 兼容OpenAI API的URL，程序会自动拼接`/v1/chat/completions`
-  apiKey: "sk-xxx"
-  model: "deepseek-chat"
-  maxTokens: 4096
+  cluster:
+    baseUrl: "" # 兼容OpenAI API的URL，程序会自动拼接`/v1/chat/completions`
+    apiKey: "sk-xxx"
+    model: "deepseek-chat"
+    maxTokens: 4096
+  judge:
+    baseUrl: ""
+    apiKey: "sk-xxx"
+    model: "qwen3-max"
+    maxTokens: 4096
+
+tavily:
+  apiKey: ""
+  enabledSources: []
+  maxRequestsPerRun: 5
+
+filters:
+  blacklistKeywords: []
 
 pushers:
   - type: unipush
