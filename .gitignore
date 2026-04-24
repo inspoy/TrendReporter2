@@ -1,1 +1,5 @@
 .codex
+config.yaml
+bin/
+obj/
+data/

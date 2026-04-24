@@ -1,5 +1,5 @@
 newsNow:
-  baseUrl: ""
+  baseUrl: "http://localhost:3000"
   sources:
     china:
       - ifeng
@@ -66,8 +66,7 @@ llm:
     model: "qwen3-max"
     maxTokens: 4096
   writer:
-    mode: "local" # 本地小模型，优先用于简单摘要和文案润色
-    baseUrl: "http://127.0.0.1:11434/v1"
+    baseUrl: ""
     apiKey: ""
     model: "qwen2.5-7b-instruct"
     maxTokens: 1024
