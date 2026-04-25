@@ -1,0 +1,34 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  dotnet:
+    name: .NET
+    runs-on: ubuntu-latest
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: 1
+      DOTNET_NOLOGO: 1
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v3
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Show SDK info
+        run: dotnet --info
+
+      - name: Restore
+        run: dotnet restore TrendReporter2.sln --configfile NuGet.Config
+
+      - name: Build
+        run: dotnet build TrendReporter2.sln --configuration Release --no-restore --disable-build-servers -m:1
+
+      - name: Test
+        run: dotnet test TrendReporter2.sln --configuration Release --no-build --disable-build-servers -m:1 --verbosity normal
