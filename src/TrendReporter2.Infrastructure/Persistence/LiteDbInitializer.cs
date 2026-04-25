@@ -8,25 +8,23 @@ namespace TrendReporter2.Infrastructure.Persistence;
 public sealed class LiteDbInitializer : ITrendDatabaseInitializer
 {
     private readonly AppConfig _config;
+    private readonly LiteDbConnectionFactory _connectionFactory;
     private readonly ILogger<LiteDbInitializer> _logger;
 
-    public LiteDbInitializer(AppConfig config, ILogger<LiteDbInitializer> logger)
+    public LiteDbInitializer(
+        AppConfig config,
+        LiteDbConnectionFactory connectionFactory,
+        ILogger<LiteDbInitializer> logger)
     {
         _config = config;
+        _connectionFactory = connectionFactory;
         _logger = logger;
     }
 
     public void Initialize()
     {
-        var databasePath = ResolveDatabasePath(_config.Database.Path);
-        var dataDirectory = Path.GetDirectoryName(databasePath);
-
-        if (!string.IsNullOrWhiteSpace(dataDirectory))
-        {
-            Directory.CreateDirectory(dataDirectory);
-        }
-
-        using var database = new LiteDatabase($"Filename={databasePath};Connection=shared");
+        var databasePath = LiteDbConnectionFactory.ResolveDatabasePath(_config.Database.Path);
+        using var database = _connectionFactory.Open();
 
         EnsureContentItemIndexes(database);
         EnsureContentSnapshotIndexes(database);
@@ -43,19 +41,18 @@ public sealed class LiteDbInitializer : ITrendDatabaseInitializer
             TrendCollectionNames.All.Count);
     }
 
-    private static string ResolveDatabasePath(string configuredPath)
-    {
-        var expandedPath = Environment.ExpandEnvironmentVariables(configuredPath);
-        return Path.GetFullPath(expandedPath, Environment.CurrentDirectory);
-    }
-
     private static void EnsureContentItemIndexes(ILiteDatabase database)
     {
         var collection = database.GetCollection(TrendCollectionNames.ContentItem);
+        collection.EnsureIndex("DedupKey", unique: true);
         collection.EnsureIndex("Source");
         collection.EnsureIndex("SourceItemId");
         collection.EnsureIndex("Category");
         collection.EnsureIndex("CreatedAt");
+        collection.EnsureIndex("UpdatedAt");
+        collection.EnsureIndex("LastSeenRunId");
+        collection.EnsureIndex("LastSeenAt");
+        collection.EnsureIndex("LastSeenRank");
         collection.EnsureIndex("NeedEnrichment");
         collection.EnsureIndex("EnrichmentStatus");
     }
@@ -66,6 +63,8 @@ public sealed class LiteDbInitializer : ITrendDatabaseInitializer
         collection.EnsureIndex("RunId");
         collection.EnsureIndex("ContentItemId");
         collection.EnsureIndex("Source");
+        collection.EnsureIndex("Category");
+        collection.EnsureIndex("VisualOrder");
         collection.EnsureIndex("CapturedAt");
     }
 

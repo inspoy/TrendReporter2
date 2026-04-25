@@ -4,9 +4,11 @@ using Microsoft.Extensions.Logging;
 using TrendReporter2.App.Scheduling;
 using TrendReporter2.Core.Configuration;
 using TrendReporter2.Core.Jobs;
+using TrendReporter2.Core.News;
 using TrendReporter2.Core.Persistence;
 using TrendReporter2.Infrastructure;
 using TrendReporter2.Infrastructure.Configuration;
+using TrendReporter2.Infrastructure.News;
 
 CliOptions options;
 AppConfig config;
@@ -33,12 +35,13 @@ builder.Logging.AddSimpleConsole(console =>
 });
 
 builder.Services.AddSingleton(config);
-builder.Services.AddTrendReporterInfrastructure(); // 核心，把所有服务的具体实现注册进去
+builder.Services.AddTrendReporterInfrastructure();
 builder.Services.AddHttpClient();
-builder.Services.AddSingleton<IFetchJob, EmptyFetchJob>();
+builder.Services.AddHttpClient<INewsSourceClient, NewsNowClient>();
+builder.Services.AddSingleton<IFetchJob, FetchJob>();
 builder.Services.AddSingleton<IDigestJob, EmptyDigestJob>();
 
-if (!options.ValidateOnly)
+if (!options.ValidateOnly && !options.FetchOnce)
 {
     builder.Services.AddHostedService<FetchSchedulerService>();
     builder.Services.AddHostedService<DigestSchedulerService>();
@@ -53,6 +56,14 @@ host.Services.GetRequiredService<ITrendDatabaseInitializer>().Initialize();
 if (options.ValidateOnly)
 {
     logger.LogInformation("Validation mode completed successfully.");
+    return;
+}
+
+if (options.FetchOnce)
+{
+    logger.LogInformation("Fetch-once mode started.");
+    await host.Services.GetRequiredService<IFetchJob>().RunAsync(CancellationToken.None);
+    logger.LogInformation("Fetch-once mode completed.");
     return;
 }
 
@@ -71,12 +82,13 @@ static void LogConfigSummary(ILogger logger, AppConfig config, CliOptions option
         config.Analysis.FetchInterval);
 }
 
-internal sealed record CliOptions(string ConfigPath, bool ValidateOnly)
+internal sealed record CliOptions(string ConfigPath, bool ValidateOnly, bool FetchOnce)
 {
     public static CliOptions Parse(string[] args)
     {
-        var configPath = "config.yaml"; // 默认的配置文件路径
+        var configPath = "config.yaml";
         var validateOnly = false;
+        var fetchOnce = false;
 
         for (var i = 0; i < args.Length; i++)
         {
@@ -85,6 +97,12 @@ internal sealed record CliOptions(string ConfigPath, bool ValidateOnly)
             if (arg.Equals("--validate", StringComparison.OrdinalIgnoreCase))
             {
                 validateOnly = true;
+                continue;
+            }
+
+            if (arg.Equals("--fetch-once", StringComparison.OrdinalIgnoreCase))
+            {
+                fetchOnce = true;
                 continue;
             }
 
@@ -99,6 +117,6 @@ internal sealed record CliOptions(string ConfigPath, bool ValidateOnly)
             }
         }
 
-        return new CliOptions(Path.GetFullPath(configPath), validateOnly);
+        return new CliOptions(Path.GetFullPath(configPath), validateOnly, fetchOnce);
     }
 }
