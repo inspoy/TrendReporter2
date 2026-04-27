@@ -3,10 +3,12 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using TrendReporter2.App.Scheduling;
 using TrendReporter2.Core.Configuration;
+using TrendReporter2.Core.Enrichment;
 using TrendReporter2.Core.Jobs;
 using TrendReporter2.Core.News;
 using TrendReporter2.Core.Persistence;
 using TrendReporter2.Infrastructure;
+using TrendReporter2.Infrastructure.Enrichment;
 using TrendReporter2.Infrastructure.Configuration;
 using TrendReporter2.Infrastructure.News;
 
@@ -38,6 +40,7 @@ builder.Services.AddSingleton(config);
 builder.Services.AddTrendReporterInfrastructure();
 builder.Services.AddHttpClient();
 builder.Services.AddHttpClient<INewsSourceClient, NewsNowClient>();
+builder.Services.AddHttpClient<ITavilyClient, TavilyClient>();
 builder.Services.AddSingleton<IFetchJob, FetchJob>();
 builder.Services.AddSingleton<IDigestJob, EmptyDigestJob>();
 

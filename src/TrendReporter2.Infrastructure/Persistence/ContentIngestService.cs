@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging;
 using System.Security.Cryptography;
 using System.Text;
 using TrendReporter2.Core.Content;
+using TrendReporter2.Core.Enrichment;
 using TrendReporter2.Core.News;
 using TrendReporter2.Core.Persistence;
 
@@ -11,13 +12,16 @@ namespace TrendReporter2.Infrastructure.Persistence;
 public sealed class ContentIngestService : IContentIngestService
 {
     private readonly LiteDbConnectionFactory _connectionFactory;
+    private readonly IEnrichmentPolicy _enrichmentPolicy;
     private readonly ILogger<ContentIngestService> _logger;
 
     public ContentIngestService(
         LiteDbConnectionFactory connectionFactory,
+        IEnrichmentPolicy enrichmentPolicy,
         ILogger<ContentIngestService> logger)
     {
         _connectionFactory = connectionFactory;
+        _enrichmentPolicy = enrichmentPolicy;
         _logger = logger;
     }
 
@@ -49,6 +53,7 @@ public sealed class ContentIngestService : IContentIngestService
 
             if (existing is null)
             {
+                var needEnrichment = _enrichmentPolicy.NeedEnrichment(item);
                 persisted = new ContentItem
                 {
                     Id = BuildContentItemId(item),
@@ -61,8 +66,10 @@ public sealed class ContentIngestService : IContentIngestService
                     MobileUrl = item.MobileUrl,
                     PubTime = item.PubTime,
                     HoverText = item.HoverText,
-                    NeedEnrichment = false,
-                    EnrichmentStatus = "None",
+                    Summary = BuildTitleOnlySummary(item),
+                    SummarySource = SummarySources.TitleOnly,
+                    NeedEnrichment = needEnrichment,
+                    EnrichmentStatus = needEnrichment ? EnrichmentStatuses.Pending : EnrichmentStatuses.Skipped,
                     CreatedAt = capturedAt,
                     UpdatedAt = capturedAt,
                     LastSeenRunId = runId,
@@ -82,6 +89,22 @@ public sealed class ContentIngestService : IContentIngestService
                 existing.MobileUrl = item.MobileUrl;
                 existing.PubTime = item.PubTime;
                 existing.HoverText = item.HoverText;
+                existing.NeedEnrichment = _enrichmentPolicy.NeedEnrichment(item);
+                if (string.IsNullOrWhiteSpace(existing.Summary) || string.Equals(existing.SummarySource, SummarySources.TitleOnly, StringComparison.OrdinalIgnoreCase))
+                {
+                    existing.Summary = BuildTitleOnlySummary(item);
+                    existing.SummarySource = SummarySources.TitleOnly;
+                }
+
+                if (existing.NeedEnrichment && !string.Equals(existing.EnrichmentStatus, EnrichmentStatuses.Succeeded, StringComparison.OrdinalIgnoreCase))
+                {
+                    existing.EnrichmentStatus = EnrichmentStatuses.Pending;
+                }
+                else if (!existing.NeedEnrichment && !string.Equals(existing.EnrichmentStatus, EnrichmentStatuses.Succeeded, StringComparison.OrdinalIgnoreCase))
+                {
+                    existing.EnrichmentStatus = EnrichmentStatuses.Skipped;
+                }
+
                 existing.UpdatedAt = capturedAt;
                 existing.LastSeenRunId = runId;
                 existing.LastSeenAt = capturedAt;
@@ -129,6 +152,11 @@ public sealed class ContentIngestService : IContentIngestService
             .ThenBy(item => item.Source, StringComparer.OrdinalIgnoreCase)
             .ThenBy(item => item.Rank)
             .ThenBy(item => item.Title, StringComparer.OrdinalIgnoreCase);
+
+    private static string BuildTitleOnlySummary(NewsItem item)
+        => string.IsNullOrWhiteSpace(item.HoverText)
+            ? item.Title.Trim()
+            : $"{item.Title.Trim()} {item.HoverText.Trim()}";
 
     private static string BuildContentItemId(NewsItem item)
         => $"ci:{SafeIdPart(item.Category)}:{SafeIdPart(item.Source)}:{ShortHash(item.SourceItemId)}";

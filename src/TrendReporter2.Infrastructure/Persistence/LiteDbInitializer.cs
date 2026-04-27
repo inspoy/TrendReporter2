@@ -55,6 +55,8 @@ public sealed class LiteDbInitializer : ITrendDatabaseInitializer
         collection.EnsureIndex("LastSeenRank");
         collection.EnsureIndex("NeedEnrichment");
         collection.EnsureIndex("EnrichmentStatus");
+        collection.EnsureIndex("EnrichmentTriedAt");
+        collection.EnsureIndex("SummarySource");
     }
 
     private static void EnsureContentSnapshotIndexes(ILiteDatabase database)
