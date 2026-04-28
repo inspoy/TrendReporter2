@@ -55,17 +55,17 @@ analysis:
     scoreImproveThreshold: 12 # 综合分提升阈值
 
 llm:
-  cluster:
+  cluster: # 事件归并
     baseUrl: "" # 兼容OpenAI API的URL，程序会自动拼接`/v1/chat/completions`
     apiKey: "sk-xxx"
     model: "deepseek-chat"
     maxTokens: 4096
-  judge:
+  judge: # 重要性修正与标签判断
     baseUrl: ""
     apiKey: "sk-xxx"
     model: "qwen3-max"
     maxTokens: 4096
-  writer:
+  writer: # 摘要补足
     baseUrl: ""
     apiKey: ""
     model: "qwen2.5-7b-instruct"
@@ -73,12 +73,12 @@ llm:
 
 tavily:
   apiKey: ""
-  enabledSources: []
-  maxRequestsPerRun: 5
-  minTitleLength: 14
-  onlyWhenRecallWeak: true
-  recallWeakScoreThreshold: 0.35
-  retryCooldownHours: 12
+  enabledSources: [] # 这些信源必使用Tavily增强，其他的再后续判断
+  maxRequestsPerRun: 5 # 每次分析最多调用Tavily API的次数
+  minTitleLength: 14 # 标题长度小于该值的新闻视为需要增强
+  onlyWhenRecallWeak: true # 暂时没用到
+  recallWeakScoreThreshold: 0.35 # 首轮召回最高分低于该值时才需要增强
+  retryCooldownHours: 12 # 增强失败的新闻在这个时间窗口内不再尝试增强
 
 filters:
   blacklistKeywords: []

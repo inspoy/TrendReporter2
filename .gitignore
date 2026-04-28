@@ -1,4 +1,5 @@
 .codex
+.idea
 config.yaml
 bin/
 obj/
