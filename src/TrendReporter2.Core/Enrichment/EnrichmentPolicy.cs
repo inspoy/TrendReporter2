@@ -33,7 +33,7 @@ public sealed class EnrichmentPolicy : IEnrichmentPolicy
     {
         _config = config;
         _enabledSources = new HashSet<string>(
-            config.Tavily.EnabledSources.Where(source => !string.IsNullOrWhiteSpace(source)),
+            config.Enrichment.EnabledSources.Where(source => !string.IsNullOrWhiteSpace(source)),
             StringComparer.OrdinalIgnoreCase);
     }
 
@@ -66,7 +66,7 @@ public sealed class EnrichmentPolicy : IEnrichmentPolicy
         }
 
         var normalizedTitle = Normalize(title);
-        if (TextLength(normalizedTitle) < _config.Tavily.MinTitleLength)
+        if (TextLength(normalizedTitle) < _config.Enrichment.MinTitleLength)
         {
             return true;
         }

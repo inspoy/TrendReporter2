@@ -28,7 +28,8 @@ public sealed class YamlAppConfigLoader : IAppConfigLoader
             throw new FileNotFoundException($"Config file was not found: {path}", path);
         }
 
-        var yaml = File.ReadAllText(path);
+        var yaml = File.ReadAllText(path)
+            .Replace("web_extract_url:", "webExtractUrl:", StringComparison.Ordinal);
         var config = _deserializer.Deserialize<AppConfig>(yaml)
             ?? throw new InvalidOperationException($"Config file is empty: {path}");
 

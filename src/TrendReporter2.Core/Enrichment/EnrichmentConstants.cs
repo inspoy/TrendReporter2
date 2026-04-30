@@ -3,7 +3,7 @@ namespace TrendReporter2.Core.Enrichment;
 public static class SummarySources
 {
     public const string TitleOnly = "TitleOnly";
-    public const string Tavily = "Tavily";
+    public const string Enrichment = "Enrichment";
 }
 
 public static class EnrichmentStatuses
@@ -14,4 +14,3 @@ public static class EnrichmentStatuses
     public const string Failed = "Failed";
     public const string Skipped = "Skipped";
 }
-

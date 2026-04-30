@@ -10,7 +10,7 @@ public sealed class AppConfig
 
     public LlmConfig Llm { get; init; } = new();
 
-    public TavilyConfig Tavily { get; init; } = new();
+    public EnrichmentConfig Enrichment { get; init; } = new();
 
     public FilterConfig Filters { get; init; } = new();
 
@@ -108,9 +108,9 @@ public sealed class WriterLlmConfig : LlmEndpointConfig
     public string Mode { get; init; } = "local";
 }
 
-public sealed class TavilyConfig
+public sealed class EnrichmentConfig
 {
-    public string ApiKey { get; init; } = string.Empty;
+    public string WebExtractUrl { get; init; } = string.Empty;
 
     public List<string> EnabledSources { get; init; } = [];
 

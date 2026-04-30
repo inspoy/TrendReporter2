@@ -35,10 +35,10 @@ public static class AppConfigValidator
         Require(config.Analysis.Event.MinTrendSamples > 0, "analysis.event.minTrendSamples must be greater than 0.");
         Require(config.Analysis.Event.MinTrendHeat >= 0, "analysis.event.minTrendHeat must not be negative.");
 
-        Require(config.Tavily.MaxRequestsPerRun >= 0, "tavily.maxRequestsPerRun must not be negative.");
-        Require(config.Tavily.MinTitleLength > 0, "tavily.minTitleLength must be greater than 0.");
-        Require(IsRatio(config.Tavily.RecallWeakScoreThreshold), "tavily.recallWeakScoreThreshold must be between 0 and 1.");
-        Require(config.Tavily.RetryCooldownHours >= 0, "tavily.retryCooldownHours must not be negative.");
+        Require(config.Enrichment.MaxRequestsPerRun >= 0, "enrichment.maxRequestsPerRun must not be negative.");
+        Require(config.Enrichment.MinTitleLength > 0, "enrichment.minTitleLength must be greater than 0.");
+        Require(IsRatio(config.Enrichment.RecallWeakScoreThreshold), "enrichment.recallWeakScoreThreshold must be between 0 and 1.");
+        Require(config.Enrichment.RetryCooldownHours >= 0, "enrichment.retryCooldownHours must not be negative.");
 
         Require(config.System.MaxParallelFetch > 0, "system.maxParallelFetch must be greater than 0.");
         Require(config.System.MaxParallelEnrichment > 0, "system.maxParallelEnrichment must be greater than 0.");

@@ -40,7 +40,7 @@ builder.Services.AddSingleton(config);
 builder.Services.AddTrendReporterInfrastructure();
 builder.Services.AddHttpClient();
 builder.Services.AddHttpClient<INewsSourceClient, NewsNowClient>();
-builder.Services.AddHttpClient<ITavilyClient, TavilyClient>();
+builder.Services.AddHttpClient<IEnrichmentClient, WebExtractEnrichmentClient>();
 builder.Services.AddSingleton<IFetchJob, FetchJob>();
 builder.Services.AddSingleton<IDigestJob, EmptyDigestJob>();
 

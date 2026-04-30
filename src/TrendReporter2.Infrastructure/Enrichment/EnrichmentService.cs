@@ -12,18 +12,18 @@ public sealed class EnrichmentService : IEnrichmentService
 {
     private readonly AppConfig _config;
     private readonly LiteDbConnectionFactory _connectionFactory;
-    private readonly ITavilyClient _tavilyClient;
+    private readonly IEnrichmentClient _enrichmentClient;
     private readonly ILogger<EnrichmentService> _logger;
 
     public EnrichmentService(
         AppConfig config,
         LiteDbConnectionFactory connectionFactory,
-        ITavilyClient tavilyClient,
+        IEnrichmentClient enrichmentClient,
         ILogger<EnrichmentService> logger)
     {
         _config = config;
         _connectionFactory = connectionFactory;
-        _tavilyClient = tavilyClient;
+        _enrichmentClient = enrichmentClient;
         _logger = logger;
     }
 
@@ -33,7 +33,7 @@ public sealed class EnrichmentService : IEnrichmentService
         CancellationToken cancellationToken)
     {
         var candidates = LoadCandidates(runId, startedAt);
-        var limit = Math.Max(0, _config.Tavily.MaxRequestsPerRun);
+        var limit = Math.Max(0, _config.Enrichment.MaxRequestsPerRun);
         var attempted = 0;
         var succeeded = 0;
         var failed = 0;
@@ -45,11 +45,11 @@ public sealed class EnrichmentService : IEnrichmentService
             return new EnrichmentRunResult(0, 0, 0, 0, 0);
         }
 
-        if (string.IsNullOrWhiteSpace(_config.Tavily.ApiKey))
+        if (string.IsNullOrWhiteSpace(_config.Enrichment.WebExtractUrl))
         {
-            skipped = MarkSkipped(candidates, "Tavily API key is not configured.", startedAt);
+            skipped = MarkSkipped(candidates, "Enrichment web extract URL is not configured.", startedAt);
             _logger.LogWarning(
-                "Skipped Tavily enrichment for run={RunId}; API key is not configured. CandidateCount={CandidateCount}.",
+                "Skipped enrichment for run={RunId}; web extract URL is not configured. CandidateCount={CandidateCount}.",
                 runId,
                 candidates.Count);
             return new EnrichmentRunResult(candidates.Count, 0, 0, 0, skipped);
@@ -61,7 +61,7 @@ public sealed class EnrichmentService : IEnrichmentService
 
             if (attempted >= limit)
             {
-                skipped += MarkSkipped(item, "Per-run Tavily request limit reached.", startedAt);
+                skipped += MarkSkipped(item, "Per-run enrichment request limit reached.", startedAt);
                 continue;
             }
 
@@ -76,7 +76,7 @@ public sealed class EnrichmentService : IEnrichmentService
 
             try
             {
-                var result = await _tavilyClient.EnrichAsync(item, cancellationToken);
+                var result = await _enrichmentClient.EnrichAsync(item, cancellationToken);
                 if (result is null || string.IsNullOrWhiteSpace(result.Summary))
                 {
                     ApplyTitleOnlyFallback(item, EnrichmentStatuses.Failed, startedAt, markTried: true);
@@ -87,7 +87,7 @@ public sealed class EnrichmentService : IEnrichmentService
                 item.Title = string.IsNullOrWhiteSpace(result.Title) ? item.Title : result.Title.Trim();
                 item.Url = string.IsNullOrWhiteSpace(result.Url) ? item.Url : result.Url.Trim();
                 item.Summary = result.Summary.Trim();
-                item.SummarySource = SummarySources.Tavily;
+                item.SummarySource = SummarySources.Enrichment;
                 item.EnrichmentStatus = EnrichmentStatuses.Succeeded;
                 item.UpdatedAt = startedAt;
                 Save(item);
@@ -97,7 +97,7 @@ public sealed class EnrichmentService : IEnrichmentService
             {
                 _logger.LogWarning(
                     ex,
-                    "Tavily enrichment failed for contentItemId={ContentItemId}, run={RunId}.",
+                    "Enrichment failed for contentItemId={ContentItemId}, run={RunId}.",
                     item.Id,
                     runId);
                 ApplyTitleOnlyFallback(item, EnrichmentStatuses.Failed, startedAt, markTried: true);
@@ -106,7 +106,7 @@ public sealed class EnrichmentService : IEnrichmentService
         }
 
         _logger.LogInformation(
-            "Tavily enrichment finished for run={RunId}. Candidates={CandidateCount}, Attempted={AttemptedCount}, Succeeded={SucceededCount}, Failed={FailedCount}, Skipped={SkippedCount}.",
+            "Enrichment finished for run={RunId}. Candidates={CandidateCount}, Attempted={AttemptedCount}, Succeeded={SucceededCount}, Failed={FailedCount}, Skipped={SkippedCount}.",
             runId,
             candidates.Count,
             attempted,
@@ -119,7 +119,7 @@ public sealed class EnrichmentService : IEnrichmentService
 
     private List<ContentItem> LoadCandidates(string runId, DateTimeOffset now)
     {
-        var cooldownCutoff = now.AddHours(-Math.Max(0, _config.Tavily.RetryCooldownHours));
+        var cooldownCutoff = now.AddHours(-Math.Max(0, _config.Enrichment.RetryCooldownHours));
 
         using var database = _connectionFactory.Open();
         var collection = database.GetCollection<ContentItem>(TrendCollectionNames.ContentItem);
