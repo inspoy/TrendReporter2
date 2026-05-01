@@ -1,5 +1,6 @@
 .codex
 .idea
+.sisyphus
 config.yaml
 bin/
 obj/
