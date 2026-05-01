@@ -42,15 +42,15 @@ public sealed class WebExtractEnrichmentClient : IEnrichmentClient
             using var response = await _httpClient.SendAsync(request, cancellationToken);
             responseBody = await response.Content.ReadAsStringAsync(cancellationToken);
 
-            if (!response.IsSuccessStatusCode)
-            {
-                _logger.LogWarning(
-                    "Web extract failed for contentItemId={ContentItemId}, status={StatusCode}, reason={ReasonPhrase}.",
-                    item.Id,
-                    (int)response.StatusCode,
-                    response.ReasonPhrase);
-                return null;
-            }
+            // if (!response.IsSuccessStatusCode)
+            // {
+            //     _logger.LogWarning(
+            //         "Web extract failed for contentItemId={ContentItemId}, status={StatusCode}, reason={ReasonPhrase}.",
+            //         item.Id,
+            //         (int)response.StatusCode,
+            //         response.ReasonPhrase);
+            //     return null;
+            // }
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
