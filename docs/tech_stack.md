@@ -220,7 +220,7 @@ dotnet build TrendReporter2.sln --no-restore -m:1 /p:UseSharedCompilation=false 
 验证配置与数据库初始化：
 
 ```powershell
-dotnet run --project src\TrendReporter2.App\TrendReporter2.App.csproj --no-build -- --validate
+dotnet run --project src\TrendReporter2.App\TrendReporter2.App.csproj --no-build -- validate
 ```
 
 启动后台服务：
