@@ -1,0 +1,70 @@
+using TrendReporter2.Core.Content;
+
+namespace TrendReporter2.Core.Events;
+
+public interface IEventRepository
+{
+    Task<IReadOnlyList<ContentItem>> LoadUnmappedRunContentItemsAsync(string runId, CancellationToken cancellationToken);
+
+    Task<IReadOnlyList<EventAggregate>> LoadRecallCandidatesAsync(DateTimeOffset now, int historyHours, int staleHours, int archiveRecallDays, CancellationToken cancellationToken);
+
+    Task<EventAggregate?> GetEventAsync(string eventId, CancellationToken cancellationToken);
+
+    Task UpsertEventAsync(EventAggregate eventAggregate, CancellationToken cancellationToken);
+
+    Task<bool> MapEventItemIfMissingAsync(EventItem eventItem, CancellationToken cancellationToken);
+}
+
+public interface IEventCandidateService
+{
+    Task<IReadOnlyList<EventCandidate>> RecallAsync(ContentItem item, DateTimeOffset now, CancellationToken cancellationToken);
+}
+
+public interface IClusterLlmClient
+{
+    bool IsConfigured { get; }
+
+    Task<ClusterMatchResult> MatchAsync(ClusterMatchRequest request, CancellationToken cancellationToken);
+}
+
+public interface IEventMatcher
+{
+    Task<EventMatchRunResult> MatchRunAsync(string runId, DateTimeOffset now, CancellationToken cancellationToken);
+}
+
+public sealed record EventCandidate(
+    EventAggregate Event,
+    double Score,
+    IReadOnlyList<string> MatchedFeatures);
+
+public sealed record ClusterMatchRequest(
+    ContentItem Item,
+    IReadOnlyList<EventCandidate> Candidates);
+
+public sealed record ClusterMatchResult(
+    string Decision,
+    string? EventId,
+    string? CanonicalTitle,
+    string? Summary,
+    double Confidence,
+    string? Reason)
+{
+    public static ClusterMatchResult CreateNew(string? reason = null)
+        => new(ClusterDecisions.Unrelated, null, null, null, 0, reason ?? "create new event");
+}
+
+public sealed record EventMatchRunResult(
+    int CandidateCount,
+    int CreatedEventCount,
+    int MergedEventCount,
+    int ReactivatedEventCount,
+    int MappedItemCount,
+    int SkippedAlreadyMappedCount);
+
+public static class ClusterDecisions
+{
+    public const string SameEvent = "same_event";
+    public const string FollowUp = "follow_up";
+    public const string RelatedButDistinct = "related_but_distinct";
+    public const string Unrelated = "unrelated";
+}

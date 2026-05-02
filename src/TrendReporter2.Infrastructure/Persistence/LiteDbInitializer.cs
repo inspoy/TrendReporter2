@@ -83,6 +83,7 @@ public sealed class LiteDbInitializer : ITrendDatabaseInitializer
     private static void EnsureEventItemIndexes(ILiteDatabase database)
     {
         var collection = database.GetCollection(TrendCollectionNames.EventItem);
+        collection.EnsureIndex("DedupKey", unique: true);
         collection.EnsureIndex("EventId");
         collection.EnsureIndex("ContentItemId");
         collection.EnsureIndex("MatchedAt");

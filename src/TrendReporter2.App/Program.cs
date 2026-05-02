@@ -5,12 +5,14 @@ using TrendReporter2.App.DataView;
 using TrendReporter2.App.Scheduling;
 using TrendReporter2.Core.Configuration;
 using TrendReporter2.Core.Enrichment;
+using TrendReporter2.Core.Events;
 using TrendReporter2.Core.Jobs;
 using TrendReporter2.Core.News;
 using TrendReporter2.Core.Persistence;
 using TrendReporter2.Infrastructure;
 using TrendReporter2.Infrastructure.Enrichment;
 using TrendReporter2.Infrastructure.Configuration;
+using TrendReporter2.Infrastructure.Llm;
 using TrendReporter2.Infrastructure.News;
 using TrendReporter2.Infrastructure.Persistence;
 
@@ -58,6 +60,7 @@ builder.Services.AddTrendReporterInfrastructure();
 builder.Services.AddHttpClient();
 builder.Services.AddHttpClient<INewsSourceClient, NewsNowClient>();
 builder.Services.AddHttpClient<IEnrichmentClient, WebExtractEnrichmentClient>();
+builder.Services.AddHttpClient<IClusterLlmClient, OpenAiClusterLlmClient>();
 builder.Services.AddSingleton<IFetchJob, FetchJob>();
 builder.Services.AddSingleton<IDigestJob, EmptyDigestJob>();
 

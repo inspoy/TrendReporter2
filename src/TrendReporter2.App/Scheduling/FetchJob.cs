@@ -2,6 +2,7 @@ using Microsoft.Extensions.Logging;
 using TrendReporter2.Core.Configuration;
 using TrendReporter2.Core.Content;
 using TrendReporter2.Core.Enrichment;
+using TrendReporter2.Core.Events;
 using TrendReporter2.Core.Fetch;
 using TrendReporter2.Core.Jobs;
 using TrendReporter2.Core.News;
@@ -14,6 +15,7 @@ public sealed class FetchJob : IFetchJob
     private readonly INewsSourceClient _newsSourceClient;
     private readonly IContentIngestService _contentIngestService;
     private readonly IEnrichmentService _enrichmentService;
+    private readonly IEventMatcher _eventMatcher;
     private readonly IFetchRunRepository _fetchRunRepository;
     private readonly ILogger<FetchJob> _logger;
 
@@ -22,6 +24,7 @@ public sealed class FetchJob : IFetchJob
         INewsSourceClient newsSourceClient,
         IContentIngestService contentIngestService,
         IEnrichmentService enrichmentService,
+        IEventMatcher eventMatcher,
         IFetchRunRepository fetchRunRepository,
         ILogger<FetchJob> logger)
     {
@@ -29,6 +32,7 @@ public sealed class FetchJob : IFetchJob
         _newsSourceClient = newsSourceClient;
         _contentIngestService = contentIngestService;
         _enrichmentService = enrichmentService;
+        _eventMatcher = eventMatcher;
         _fetchRunRepository = fetchRunRepository;
         _logger = logger;
     }
@@ -54,11 +58,13 @@ public sealed class FetchJob : IFetchJob
                 DateTimeOffset.UtcNow,
                 cancellationToken);
             var enrichmentResult = await EnrichRunAsync(fetchRun.Id, startedAt, cancellationToken);
+            var eventMatchResult = await MatchEventsAsync(fetchRun.Id, DateTimeOffset.UtcNow, cancellationToken);
 
             fetchRun.SuccessSourceCount = sourceResults.Count(result => result.Success);
             fetchRun.FailureSourceCount = sourceResults.Count(result => !result.Success);
             fetchRun.FetchedItemCount = ingestResult.TotalCount;
             fetchRun.EnrichedItemCount = enrichmentResult.SucceededCount;
+            fetchRun.MatchedEventCount = eventMatchResult.MappedItemCount;
             fetchRun.Errors = sourceResults
                 .Where(result => !result.Success && !string.IsNullOrWhiteSpace(result.Error))
                 .Select(result => $"{result.Category}/{result.Source}: {result.Error}")
@@ -70,7 +76,7 @@ public sealed class FetchJob : IFetchJob
 
             var duration = (fetchRun.FinishedAt.Value - fetchRun.StartedAt).TotalSeconds;
             _logger.LogInformation(
-                "Fetch run {RunId} finished, cost {Cost:F1}s. Status={Status}, SuccessSources={SuccessSourceCount}, FailedSources={FailureSourceCount}, Items={FetchedItemCount}, Inserted={InsertedCount}, Updated={UpdatedCount}, Snapshots={SnapshotCount}, EnrichmentCandidates={EnrichmentCandidateCount}, Enriched={EnrichedItemCount}, EnrichmentFailed={EnrichmentFailedCount}, EnrichmentSkipped={EnrichmentSkippedCount}.",
+                "Fetch run {RunId} finished, cost {Cost:F1}s. Status={Status}, SuccessSources={SuccessSourceCount}, FailedSources={FailureSourceCount}, Items={FetchedItemCount}, Inserted={InsertedCount}, Updated={UpdatedCount}, Snapshots={SnapshotCount}, EnrichmentCandidates={EnrichmentCandidateCount}, Enriched={EnrichedItemCount}, EnrichmentFailed={EnrichmentFailedCount}, EnrichmentSkipped={EnrichmentSkippedCount}, MatchedEvents={MatchedEventCount}, CreatedEvents={CreatedEventCount}, MergedEvents={MergedEventCount}, ReactivatedEvents={ReactivatedEventCount}.",
                 fetchRun.Id,
                 duration,
                 fetchRun.Status,
@@ -83,7 +89,11 @@ public sealed class FetchJob : IFetchJob
                 enrichmentResult.CandidateCount,
                 enrichmentResult.SucceededCount,
                 enrichmentResult.FailedCount,
-                enrichmentResult.SkippedCount);
+                enrichmentResult.SkippedCount,
+                eventMatchResult.MappedItemCount,
+                eventMatchResult.CreatedEventCount,
+                eventMatchResult.MergedEventCount,
+                eventMatchResult.ReactivatedEventCount);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -110,6 +120,22 @@ public sealed class FetchJob : IFetchJob
         {
             _logger.LogWarning(ex, "Enrichment failed for run={RunId}; fetch flow will continue.", runId);
             return new EnrichmentRunResult(0, 0, 0, 1, 0);
+        }
+    }
+
+    private async Task<EventMatchRunResult> MatchEventsAsync(
+        string runId,
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await _eventMatcher.MatchRunAsync(runId, now, cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(ex, "Event matching failed for run={RunId}; fetch flow will continue.", runId);
+            return new EventMatchRunResult(0, 0, 0, 0, 0, 0);
         }
     }
 

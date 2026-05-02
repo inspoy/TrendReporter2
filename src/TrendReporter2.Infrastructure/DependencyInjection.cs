@@ -2,6 +2,7 @@ using Microsoft.Extensions.DependencyInjection;
 using TrendReporter2.Core.Content;
 using TrendReporter2.Core.Configuration;
 using TrendReporter2.Core.Enrichment;
+using TrendReporter2.Core.Events;
 using TrendReporter2.Core.Fetch;
 using TrendReporter2.Core.Persistence;
 using TrendReporter2.Infrastructure.Configuration;
@@ -20,6 +21,9 @@ public static class DependencyInjection
         services.AddSingleton<IEnrichmentPolicy, EnrichmentPolicy>();
         services.AddSingleton<IContentIngestService, ContentIngestService>();
         services.AddSingleton<IEnrichmentService, EnrichmentService>();
+        services.AddSingleton<IEventRepository, LiteDbEventRepository>();
+        services.AddSingleton<IEventCandidateService, EventCandidateService>();
+        services.AddSingleton<IEventMatcher, EventMatcher>();
         services.AddSingleton<IFetchRunRepository, FetchRunRepository>();
 
         return services;
