@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text;
 using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging;
@@ -30,6 +31,7 @@ public sealed class WebExtractEnrichmentClient : IEnrichmentClient
 
     public async Task<EnrichmentResult?> EnrichAsync(ContentItem item, CancellationToken cancellationToken)
     {
+        var stopwatch = Stopwatch.StartNew();
         using var request = new HttpRequestMessage(HttpMethod.Post, BuildFetchEndpoint(_config.Enrichment.WebExtractUrl));
         request.Content = new StringContent(
             JsonConvert.SerializeObject(new { url = item.Url }),
@@ -54,17 +56,28 @@ public sealed class WebExtractEnrichmentClient : IEnrichmentClient
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
-            _logger.LogWarning("Web extract timed out for contentItemId={ContentItemId}.", item.Id);
+            _logger.LogWarning(
+                "Web extract timed out for contentItemId={ContentItemId}. ElapsedMs={ElapsedMs}",
+                item.Id,
+                stopwatch.ElapsedMilliseconds);
             return null;
         }
         catch (HttpRequestException ex)
         {
-            _logger.LogWarning(ex, "Web extract HTTP request failed for contentItemId={ContentItemId}.", item.Id);
+            _logger.LogWarning(
+                ex,
+                "Web extract HTTP request failed for contentItemId={ContentItemId}. ElapsedMs={ElapsedMs}",
+                item.Id,
+                stopwatch.ElapsedMilliseconds);
             return null;
         }
         catch (UriFormatException ex)
         {
-            _logger.LogWarning(ex, "Web extract URL is invalid for contentItemId={ContentItemId}.", item.Id);
+            _logger.LogWarning(
+                ex,
+                "Web extract URL is invalid for contentItemId={ContentItemId}. ElapsedMs={ElapsedMs}",
+                item.Id,
+                stopwatch.ElapsedMilliseconds);
             return null;
         }
 
@@ -72,18 +85,33 @@ public sealed class WebExtractEnrichmentClient : IEnrichmentClient
         if (!result.Success)
         {
             _logger.LogWarning(
-                "Web extract returned failure for contentItemId={ContentItemId}. Message={Message}",
+                "Web extract returned failure for contentItemId={ContentItemId}. ElapsedMs={ElapsedMs}, Message={Message}, Title={Title}, Summary={Summary}",
                 item.Id,
-                result.Message);
+                stopwatch.ElapsedMilliseconds,
+                Truncate(NormalizeSnippet(result.Message), 300),
+                Truncate(NormalizeSnippet(result.Title), 160),
+                Truncate(NormalizeSnippet(result.Summary), 300));
             return null;
         }
 
         var summary = BuildSummary(result.Summary);
         if (string.IsNullOrWhiteSpace(summary))
         {
-            _logger.LogWarning("Web extract returned no usable content for contentItemId={ContentItemId}.", item.Id);
+            _logger.LogWarning(
+                "Web extract returned no usable content for contentItemId={ContentItemId}. ElapsedMs={ElapsedMs}, Message={Message}, Title={Title}",
+                item.Id,
+                stopwatch.ElapsedMilliseconds,
+                Truncate(NormalizeSnippet(result.Message), 300),
+                Truncate(NormalizeSnippet(result.Title), 160));
             return null;
         }
+
+        _logger.LogInformation(
+            "Web extract succeeded for contentItemId={ContentItemId}. ElapsedMs={ElapsedMs}, Title={Title}, Summary={Summary}",
+            item.Id,
+            stopwatch.ElapsedMilliseconds,
+            Truncate(NormalizeSnippet(result.Title ?? item.Title), 160),
+            Truncate(summary, 300));
 
         return new EnrichmentResult
         {
@@ -168,6 +196,12 @@ public sealed class WebExtractEnrichmentClient : IEnrichmentClient
             ? normalized
             : normalized[..SummaryMaxLength].TrimEnd() + "...";
     }
+
+    private static string NormalizeSnippet(string? value)
+        => Whitespace.Replace(value ?? string.Empty, " ").Trim();
+
+    private static string Truncate(string value, int maxLength)
+        => value.Length <= maxLength ? value : value[..maxLength];
 
     private sealed record WebExtractResult(bool Success, string? Message, string? Summary, string? Title, string? Url);
 }

@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Net.Http.Headers;
 using System.Text;
 using Microsoft.Extensions.Logging;
@@ -32,6 +33,7 @@ public sealed class OpenAiClusterLlmClient : IClusterLlmClient
             return ClusterMatchResult.CreateNew("cluster llm is not configured or no candidates were provided");
         }
 
+        var stopwatch = Stopwatch.StartNew();
         using var httpRequest = new HttpRequestMessage(HttpMethod.Post, BuildEndpoint(_config.Llm.Cluster.BaseUrl));
         if (!string.IsNullOrWhiteSpace(_config.Llm.Cluster.ApiKey))
         {
@@ -50,14 +52,15 @@ public sealed class OpenAiClusterLlmClient : IClusterLlmClient
             if (!response.IsSuccessStatusCode)
             {
                 _logger.LogWarning(
-                    "Cluster LLM request failed for contentItemId={ContentItemId}. Status={StatusCode}, Body={Body}",
+                    "Cluster LLM request failed for contentItemId={ContentItemId}. Status={StatusCode}, ElapsedMs={ElapsedMs}, Body={Body}",
                     request.Item.Id,
                     (int)response.StatusCode,
-                    Truncate(responseBody, 500));
+                    stopwatch.ElapsedMilliseconds,
+                    Truncate(NormalizeSnippet(responseBody), 500));
                 return ClusterMatchResult.CreateNew("cluster llm http failure");
             }
 
-            return ParseResponse(responseBody, request);
+            return ParseResponse(responseBody, request, stopwatch.ElapsedMilliseconds);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -65,7 +68,11 @@ public sealed class OpenAiClusterLlmClient : IClusterLlmClient
         }
         catch (Exception ex) when (ex is HttpRequestException or JsonException or UriFormatException or TaskCanceledException)
         {
-            _logger.LogWarning(ex, "Cluster LLM request failed for contentItemId={ContentItemId}.", request.Item.Id);
+            _logger.LogWarning(
+                ex,
+                "Cluster LLM request failed for contentItemId={ContentItemId}. ElapsedMs={ElapsedMs}",
+                request.Item.Id,
+                stopwatch.ElapsedMilliseconds);
             return ClusterMatchResult.CreateNew("cluster llm request failed");
         }
     }
@@ -113,7 +120,7 @@ public sealed class OpenAiClusterLlmClient : IClusterLlmClient
             response_format = new { type = "json_object" }
         };
 
-    private ClusterMatchResult ParseResponse(string responseBody, ClusterMatchRequest request)
+    private ClusterMatchResult ParseResponse(string responseBody, ClusterMatchRequest request, long elapsedMs)
     {
         try
         {
@@ -121,13 +128,18 @@ public sealed class OpenAiClusterLlmClient : IClusterLlmClient
             var content = root["choices"]?.First?["message"]?.Value<string>("content");
             if (string.IsNullOrWhiteSpace(content))
             {
+                _logger.LogWarning(
+                    "Cluster LLM returned empty content for contentItemId={ContentItemId}. ElapsedMs={ElapsedMs}, Body={Body}",
+                    request.Item.Id,
+                    elapsedMs,
+                    Truncate(NormalizeSnippet(responseBody), 500));
                 return ClusterMatchResult.CreateNew("cluster llm returned empty content");
             }
 
-            var result = JObject.Parse(content);
-            var decision = result.Value<string>("decision")?.Trim().ToLowerInvariant();
-            var eventId = result.Value<string>("eventId")?.Trim();
-            var confidence = result.Value<double?>("confidence") ?? 0;
+            var parsed = JObject.Parse(content);
+            var decision = parsed.Value<string>("decision")?.Trim().ToLowerInvariant();
+            var eventId = parsed.Value<string>("eventId")?.Trim();
+            var confidence = parsed.Value<double?>("confidence") ?? 0;
             var validDecisions = new[]
             {
                 ClusterDecisions.SameEvent,
@@ -138,26 +150,52 @@ public sealed class OpenAiClusterLlmClient : IClusterLlmClient
 
             if (string.IsNullOrWhiteSpace(decision) || !validDecisions.Contains(decision, StringComparer.OrdinalIgnoreCase))
             {
+                _logger.LogWarning(
+                    "Cluster LLM returned invalid decision for contentItemId={ContentItemId}. ElapsedMs={ElapsedMs}, Content={Content}",
+                    request.Item.Id,
+                    elapsedMs,
+                    Truncate(NormalizeSnippet(content), 500));
                 return ClusterMatchResult.CreateNew("cluster llm returned invalid decision");
             }
 
             if ((decision == ClusterDecisions.SameEvent || decision == ClusterDecisions.FollowUp) &&
                 (string.IsNullOrWhiteSpace(eventId) || request.Candidates.All(candidate => candidate.Event.Id != eventId)))
             {
+                _logger.LogWarning(
+                    "Cluster LLM returned unknown eventId for contentItemId={ContentItemId}. ElapsedMs={ElapsedMs}, EventId={EventId}, Content={Content}",
+                    request.Item.Id,
+                    elapsedMs,
+                    eventId,
+                    Truncate(NormalizeSnippet(content), 500));
                 return ClusterMatchResult.CreateNew("cluster llm returned unknown eventId");
             }
 
-            return new ClusterMatchResult(
+            var result = new ClusterMatchResult(
                 decision,
                 eventId,
-                result.Value<string>("canonicalTitle"),
-                result.Value<string>("summary"),
+                parsed.Value<string>("canonicalTitle"),
+                parsed.Value<string>("summary"),
                 Math.Clamp(confidence, 0, 1),
-                result.Value<string>("reason"));
+                parsed.Value<string>("reason"));
+            _logger.LogInformation(
+                "Cluster LLM parsed result for contentItemId={ContentItemId}. ElapsedMs={ElapsedMs}, Decision={Decision}, EventId={EventId}, EventTitle={EventTitle}, Confidence={Confidence}, Reason={Reason}",
+                request.Item.Id,
+                elapsedMs,
+                result.Decision,
+                result.EventId,
+                result.CanonicalTitle,
+                result.Confidence,
+                Truncate(NormalizeSnippet(result.Reason), 300));
+            return result;
         }
         catch (JsonException ex)
         {
-            _logger.LogWarning(ex, "Cluster LLM returned invalid JSON for contentItemId={ContentItemId}.", request.Item.Id);
+            _logger.LogWarning(
+                ex,
+                "Cluster LLM returned invalid JSON for contentItemId={ContentItemId}. ElapsedMs={ElapsedMs}, Body={Body}",
+                request.Item.Id,
+                elapsedMs,
+                Truncate(NormalizeSnippet(responseBody), 500));
             return ClusterMatchResult.CreateNew("cluster llm returned invalid json");
         }
     }
@@ -170,4 +208,7 @@ public sealed class OpenAiClusterLlmClient : IClusterLlmClient
 
     private static string Truncate(string value, int maxLength)
         => value.Length <= maxLength ? value : value[..maxLength];
+
+    private static string NormalizeSnippet(string? value)
+        => string.Join(' ', (value ?? string.Empty).Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
 }

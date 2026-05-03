@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Net.Http.Headers;
 using System.Text;
 using Microsoft.Extensions.Logging;
@@ -32,6 +33,7 @@ public sealed class OpenAiJudgeLlmClient : IJudgeLlmClient
             return JudgeResult.Neutral("judge llm is not configured");
         }
 
+        var stopwatch = Stopwatch.StartNew();
         using var httpRequest = new HttpRequestMessage(HttpMethod.Post, BuildEndpoint(_config.Llm.Judge.BaseUrl));
         if (!string.IsNullOrWhiteSpace(_config.Llm.Judge.ApiKey))
         {
@@ -50,14 +52,15 @@ public sealed class OpenAiJudgeLlmClient : IJudgeLlmClient
             if (!response.IsSuccessStatusCode)
             {
                 _logger.LogWarning(
-                    "Judge LLM request failed for eventId={EventId}. Status={StatusCode}, Body={Body}",
+                    "Judge LLM request failed for eventId={EventId}. Status={StatusCode}, ElapsedMs={ElapsedMs}, Body={Body}",
                     request.Event.Id,
                     (int)response.StatusCode,
-                    Truncate(responseBody, 500));
+                    stopwatch.ElapsedMilliseconds,
+                    Truncate(NormalizeSnippet(responseBody), 500));
                 return JudgeResult.Neutral("judge llm http failure");
             }
 
-            return ParseResponse(responseBody, request.Event.Id);
+            return ParseResponse(responseBody, request.Event.Id, stopwatch.ElapsedMilliseconds);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -65,7 +68,11 @@ public sealed class OpenAiJudgeLlmClient : IJudgeLlmClient
         }
         catch (Exception ex) when (ex is HttpRequestException or JsonException or UriFormatException or TaskCanceledException)
         {
-            _logger.LogWarning(ex, "Judge LLM request failed for eventId={EventId}.", request.Event.Id);
+            _logger.LogWarning(
+                ex,
+                "Judge LLM request failed for eventId={EventId}. ElapsedMs={ElapsedMs}",
+                request.Event.Id,
+                stopwatch.ElapsedMilliseconds);
             return JudgeResult.Neutral("judge llm request failed");
         }
     }
@@ -115,7 +122,7 @@ public sealed class OpenAiJudgeLlmClient : IJudgeLlmClient
             response_format = new { type = "json_object" }
         };
 
-    private JudgeResult ParseResponse(string responseBody, string eventId)
+    private JudgeResult ParseResponse(string responseBody, string eventId, long elapsedMs)
     {
         try
         {
@@ -123,25 +130,44 @@ public sealed class OpenAiJudgeLlmClient : IJudgeLlmClient
             var content = root["choices"]?.First?["message"]?.Value<string>("content");
             if (string.IsNullOrWhiteSpace(content))
             {
+                _logger.LogWarning(
+                    "Judge LLM returned empty content for eventId={EventId}. ElapsedMs={ElapsedMs}, Body={Body}",
+                    eventId,
+                    elapsedMs,
+                    Truncate(NormalizeSnippet(responseBody), 500));
                 return JudgeResult.Neutral("judge llm returned empty content");
             }
 
-            var result = JObject.Parse(content);
-            var labels = result["labels"] is JArray labelArray
+            var parsed = JObject.Parse(content);
+            var labels = parsed["labels"] is JArray labelArray
                 ? ParseLabels(labelArray)
                 : [];
-            return new JudgeResult(
-                result.Value<string>("importance"),
-                Math.Clamp(result.Value<double?>("boostScore") ?? 0, 0, 1),
+            var result = new JudgeResult(
+                parsed.Value<string>("importance"),
+                Math.Clamp(parsed.Value<double?>("boostScore") ?? 0, 0, 1),
                 labels,
-                result.Value<string>("reason"),
-                result.Value<string>("summary"),
-                NormalizeStage(result.Value<string>("stage")),
-                result.Value<string>("progressSummary"));
+                parsed.Value<string>("reason"),
+                parsed.Value<string>("summary"),
+                NormalizeStage(parsed.Value<string>("stage")),
+                parsed.Value<string>("progressSummary"));
+            _logger.LogInformation(
+                "Judge LLM parsed result for eventId={EventId}. ElapsedMs={ElapsedMs}, Importance={Importance}, BoostScore={BoostScore}, Stage={Stage}, Reason={Reason}",
+                eventId,
+                elapsedMs,
+                result.Importance,
+                result.BoostScore,
+                result.Stage,
+                Truncate(NormalizeSnippet(result.Reason), 300));
+            return result;
         }
         catch (JsonException ex)
         {
-            _logger.LogWarning(ex, "Judge LLM returned invalid JSON for eventId={EventId}.", eventId);
+            _logger.LogWarning(
+                ex,
+                "Judge LLM returned invalid JSON for eventId={EventId}. ElapsedMs={ElapsedMs}, Body={Body}",
+                eventId,
+                elapsedMs,
+                Truncate(NormalizeSnippet(responseBody), 500));
             return JudgeResult.Neutral("judge llm returned invalid json");
         }
     }
@@ -189,4 +215,7 @@ public sealed class OpenAiJudgeLlmClient : IJudgeLlmClient
 
     private static string Truncate(string value, int maxLength)
         => value.Length <= maxLength ? value : value[..maxLength];
+
+    private static string NormalizeSnippet(string? value)
+        => string.Join(' ', (value ?? string.Empty).Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
 }

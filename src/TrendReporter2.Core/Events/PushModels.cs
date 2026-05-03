@@ -6,6 +6,10 @@ public sealed class PushMessage
 
     public string Message { get; set; } = string.Empty;
 
+    public string Reason { get; set; } = string.Empty;
+
+    public string Content { get; set; } = string.Empty;
+
     public string Link { get; set; } = string.Empty;
 
     public string PushType { get; set; } = PushTypes.Instant;
@@ -26,6 +30,10 @@ public sealed class PushLog
     public DateTimeOffset PushedAt { get; set; }
 
     public string Title { get; set; } = string.Empty;
+
+    public string Reason { get; set; } = string.Empty;
+
+    public string Content { get; set; } = string.Empty;
 
     public string Payload { get; set; } = string.Empty;
 
