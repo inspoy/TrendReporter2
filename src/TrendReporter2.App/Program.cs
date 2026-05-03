@@ -54,6 +54,8 @@ builder.Logging.AddSimpleConsole(console =>
     console.SingleLine = true;
     console.TimestampFormat = "yyyy-MM-dd HH:mm:ss ";
 });
+builder.Logging.AddFilter("System.Net.Http.HttpClient", LogLevel.Warning);
+builder.Logging.AddFilter("Microsoft.Extensions.Http", LogLevel.Warning);
 
 builder.Services.AddSingleton(config);
 builder.Services.AddTrendReporterInfrastructure();

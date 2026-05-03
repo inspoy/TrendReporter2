@@ -147,7 +147,7 @@ public sealed class SystemConfig
 
     public int MaxParallelFetch { get; init; } = 4;
 
-    public int MaxParallelEnrichment { get; init; } = 2;
+    public int MaxParallelEnrichment { get; init; } = 3;
 
     public int MaxParallelLlm { get; init; } = 2;
 }

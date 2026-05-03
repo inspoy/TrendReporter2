@@ -47,7 +47,12 @@ public sealed class EnrichmentService : IEnrichmentService
 
         if (string.IsNullOrWhiteSpace(_config.Enrichment.WebExtractUrl))
         {
-            skipped = MarkSkipped(candidates, "Enrichment web extract URL is not configured.", startedAt);
+            foreach (var item in candidates)
+            {
+                MarkSkipped(item, "Enrichment web extract URL is not configured.", startedAt);
+                skipped++;
+            }
+
             _logger.LogWarning(
                 "Skipped enrichment for run={RunId}; web extract URL is not configured. CandidateCount={CandidateCount}.",
                 runId,
@@ -55,56 +60,68 @@ public sealed class EnrichmentService : IEnrichmentService
             return new EnrichmentRunResult(candidates.Count, 0, 0, 0, skipped);
         }
 
-        foreach (var item in candidates)
+        using var semaphore = new SemaphoreSlim(_config.System.MaxParallelEnrichment);
+        var tasks = candidates.Select(async item =>
         {
-            cancellationToken.ThrowIfCancellationRequested();
-
-            if (attempted >= limit)
-            {
-                skipped += MarkSkipped(item, "Per-run enrichment request limit reached.", startedAt);
-                continue;
-            }
-
-            if (string.IsNullOrWhiteSpace(item.Url))
-            {
-                skipped += MarkSkipped(item, "Content item has no URL.", startedAt);
-                continue;
-            }
-
-            attempted++;
-            item.EnrichmentTriedAt = startedAt;
-
+            await semaphore.WaitAsync(cancellationToken);
             try
             {
-                var result = await _enrichmentClient.EnrichAsync(item, cancellationToken);
-                if (result is null || string.IsNullOrWhiteSpace(result.Summary))
+                cancellationToken.ThrowIfCancellationRequested();
+
+                if (string.IsNullOrWhiteSpace(item.Url))
                 {
-                    ApplySummaryFallback(item, EnrichmentStatuses.Failed, startedAt, markTried: true);
-                    failed++;
-                    continue;
+                    MarkSkipped(item, "Content item has no URL.", startedAt);
+                    Interlocked.Increment(ref skipped);
+                    return;
                 }
 
-                item.Title = string.IsNullOrWhiteSpace(result.Title) ? item.Title : result.Title.Trim();
-                item.Url = string.IsNullOrWhiteSpace(result.Url) ? item.Url : result.Url.Trim();
-                var summary = BuildPreferredSummary(item, result.Summary);
-                item.Summary = summary.Value;
-                item.SummarySource = summary.Source;
-                item.EnrichmentStatus = EnrichmentStatuses.Succeeded;
-                item.UpdatedAt = startedAt;
-                Save(item);
-                succeeded++;
+                if (Interlocked.Increment(ref attempted) > limit)
+                {
+                    MarkSkipped(item, "Per-run enrichment request limit reached.", startedAt);
+                    Interlocked.Increment(ref skipped);
+                    return;
+                }
+
+                item.EnrichmentTriedAt = startedAt;
+
+                try
+                {
+                    var result = await _enrichmentClient.EnrichAsync(item, cancellationToken);
+                    if (result is null || string.IsNullOrWhiteSpace(result.Summary))
+                    {
+                        ApplySummaryFallback(item, EnrichmentStatuses.Failed, startedAt, markTried: true);
+                        Interlocked.Increment(ref failed);
+                        return;
+                    }
+
+                    item.Title = string.IsNullOrWhiteSpace(result.Title) ? item.Title : result.Title.Trim();
+                    item.Url = string.IsNullOrWhiteSpace(result.Url) ? item.Url : result.Url.Trim();
+                    var summary = BuildPreferredSummary(item, result.Summary);
+                    item.Summary = summary.Value;
+                    item.SummarySource = summary.Source;
+                    item.EnrichmentStatus = EnrichmentStatuses.Succeeded;
+                    item.UpdatedAt = startedAt;
+                    Save(item);
+                    Interlocked.Increment(ref succeeded);
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    _logger.LogWarning(
+                        ex,
+                        "Enrichment failed for contentItemId={ContentItemId}, run={RunId}.",
+                        item.Id,
+                        runId);
+                    ApplySummaryFallback(item, EnrichmentStatuses.Failed, startedAt, markTried: true);
+                    Interlocked.Increment(ref failed);
+                }
             }
-            catch (Exception ex) when (ex is not OperationCanceledException)
+            finally
             {
-                _logger.LogWarning(
-                    ex,
-                    "Enrichment failed for contentItemId={ContentItemId}, run={RunId}.",
-                    item.Id,
-                    runId);
-                ApplySummaryFallback(item, EnrichmentStatuses.Failed, startedAt, markTried: true);
-                failed++;
+                semaphore.Release();
             }
-        }
+        });
+
+        await Task.WhenAll(tasks);
 
         _logger.LogInformation(
             "Enrichment finished for run={RunId}. Candidates={CandidateCount}, Attempted={AttemptedCount}, Succeeded={SucceededCount}, Failed={FailedCount}, Skipped={SkippedCount}.",
@@ -135,25 +152,13 @@ public sealed class EnrichmentService : IEnrichmentService
             .ToList();
     }
 
-    private int MarkSkipped(IEnumerable<ContentItem> items, string reason, DateTimeOffset now)
-    {
-        var count = 0;
-        foreach (var item in items)
-        {
-            count += MarkSkipped(item, reason, now);
-        }
-
-        return count;
-    }
-
-    private int MarkSkipped(ContentItem item, string reason, DateTimeOffset now)
+    private void MarkSkipped(ContentItem item, string reason, DateTimeOffset now)
     {
         _logger.LogInformation(
             "Skipped enrichment for contentItemId={ContentItemId}. Reason={Reason}",
             item.Id,
             reason);
         ApplySummaryFallback(item, EnrichmentStatuses.Skipped, now, markTried: false);
-        return 1;
     }
 
     private void ApplySummaryFallback(ContentItem item, string status, DateTimeOffset now, bool markTried)
