@@ -54,6 +54,7 @@ public sealed class ContentIngestService : IContentIngestService
             if (existing is null)
             {
                 var needEnrichment = _enrichmentPolicy.NeedEnrichment(item);
+                var summary = BuildPreferredSummary(item);
                 persisted = new ContentItem
                 {
                     Id = BuildContentItemId(item),
@@ -66,8 +67,8 @@ public sealed class ContentIngestService : IContentIngestService
                     MobileUrl = item.MobileUrl,
                     PubTime = item.PubTime,
                     HoverText = item.HoverText,
-                    Summary = BuildTitleOnlySummary(item),
-                    SummarySource = SummarySources.TitleOnly,
+                    Summary = summary.Value,
+                    SummarySource = summary.Source,
                     NeedEnrichment = needEnrichment,
                     EnrichmentStatus = needEnrichment ? EnrichmentStatuses.Pending : EnrichmentStatuses.Skipped,
                     CreatedAt = capturedAt,
@@ -90,10 +91,11 @@ public sealed class ContentIngestService : IContentIngestService
                 existing.PubTime = item.PubTime;
                 existing.HoverText = item.HoverText;
                 existing.NeedEnrichment = _enrichmentPolicy.NeedEnrichment(item);
-                if (string.IsNullOrWhiteSpace(existing.Summary) || string.Equals(existing.SummarySource, SummarySources.TitleOnly, StringComparison.OrdinalIgnoreCase))
+                if (ShouldRefreshSourceSummary(existing.Summary, existing.SummarySource))
                 {
-                    existing.Summary = BuildTitleOnlySummary(item);
-                    existing.SummarySource = SummarySources.TitleOnly;
+                    var summary = BuildPreferredSummary(item);
+                    existing.Summary = summary.Value;
+                    existing.SummarySource = summary.Source;
                 }
 
                 if (existing.NeedEnrichment && !string.Equals(existing.EnrichmentStatus, EnrichmentStatuses.Succeeded, StringComparison.OrdinalIgnoreCase))
@@ -153,10 +155,15 @@ public sealed class ContentIngestService : IContentIngestService
             .ThenBy(item => item.Rank)
             .ThenBy(item => item.Title, StringComparer.OrdinalIgnoreCase);
 
-    private static string BuildTitleOnlySummary(NewsItem item)
+    private static bool ShouldRefreshSourceSummary(string? summary, string? source)
+        => string.IsNullOrWhiteSpace(summary) ||
+            string.Equals(source, SummarySources.TitleOnly, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(source, SummarySources.HoverText, StringComparison.OrdinalIgnoreCase);
+
+    private static (string Value, string Source) BuildPreferredSummary(NewsItem item)
         => string.IsNullOrWhiteSpace(item.HoverText)
-            ? item.Title.Trim()
-            : $"{item.Title.Trim()} {item.HoverText.Trim()}";
+            ? (item.Title.Trim(), SummarySources.TitleOnly)
+            : (item.HoverText.Trim(), SummarySources.HoverText);
 
     private static string BuildContentItemId(NewsItem item)
         => $"ci:{SafeIdPart(item.Category)}:{SafeIdPart(item.Source)}:{ShortHash(item.SourceItemId)}";

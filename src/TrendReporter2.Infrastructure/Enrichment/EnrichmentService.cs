@@ -79,15 +79,16 @@ public sealed class EnrichmentService : IEnrichmentService
                 var result = await _enrichmentClient.EnrichAsync(item, cancellationToken);
                 if (result is null || string.IsNullOrWhiteSpace(result.Summary))
                 {
-                    ApplyTitleOnlyFallback(item, EnrichmentStatuses.Failed, startedAt, markTried: true);
+                    ApplySummaryFallback(item, EnrichmentStatuses.Failed, startedAt, markTried: true);
                     failed++;
                     continue;
                 }
 
                 item.Title = string.IsNullOrWhiteSpace(result.Title) ? item.Title : result.Title.Trim();
                 item.Url = string.IsNullOrWhiteSpace(result.Url) ? item.Url : result.Url.Trim();
-                item.Summary = result.Summary.Trim();
-                item.SummarySource = SummarySources.Enrichment;
+                var summary = BuildPreferredSummary(item, result.Summary);
+                item.Summary = summary.Value;
+                item.SummarySource = summary.Source;
                 item.EnrichmentStatus = EnrichmentStatuses.Succeeded;
                 item.UpdatedAt = startedAt;
                 Save(item);
@@ -100,7 +101,7 @@ public sealed class EnrichmentService : IEnrichmentService
                     "Enrichment failed for contentItemId={ContentItemId}, run={RunId}.",
                     item.Id,
                     runId);
-                ApplyTitleOnlyFallback(item, EnrichmentStatuses.Failed, startedAt, markTried: true);
+                ApplySummaryFallback(item, EnrichmentStatuses.Failed, startedAt, markTried: true);
                 failed++;
             }
         }
@@ -151,14 +152,15 @@ public sealed class EnrichmentService : IEnrichmentService
             "Skipped enrichment for contentItemId={ContentItemId}. Reason={Reason}",
             item.Id,
             reason);
-        ApplyTitleOnlyFallback(item, EnrichmentStatuses.Skipped, now, markTried: false);
+        ApplySummaryFallback(item, EnrichmentStatuses.Skipped, now, markTried: false);
         return 1;
     }
 
-    private void ApplyTitleOnlyFallback(ContentItem item, string status, DateTimeOffset now, bool markTried)
+    private void ApplySummaryFallback(ContentItem item, string status, DateTimeOffset now, bool markTried)
     {
-        item.Summary = BuildTitleOnlySummary(item);
-        item.SummarySource = SummarySources.TitleOnly;
+        var summary = BuildPreferredSummary(item, enrichmentSummary: null);
+        item.Summary = summary.Value;
+        item.SummarySource = summary.Source;
         item.EnrichmentStatus = status;
         if (markTried)
         {
@@ -175,8 +177,15 @@ public sealed class EnrichmentService : IEnrichmentService
         database.GetCollection<ContentItem>(TrendCollectionNames.ContentItem).Update(item);
     }
 
-    private static string BuildTitleOnlySummary(ContentItem item)
-        => string.IsNullOrWhiteSpace(item.HoverText)
-            ? item.Title.Trim()
-            : $"{item.Title.Trim()} {item.HoverText.Trim()}";
+    private static (string Value, string Source) BuildPreferredSummary(ContentItem item, string? enrichmentSummary)
+    {
+        if (!string.IsNullOrWhiteSpace(item.HoverText))
+        {
+            return (item.HoverText.Trim(), SummarySources.HoverText);
+        }
+
+        return string.IsNullOrWhiteSpace(enrichmentSummary)
+            ? (item.Title.Trim(), SummarySources.TitleOnly)
+            : (enrichmentSummary.Trim(), SummarySources.Enrichment);
+    }
 }

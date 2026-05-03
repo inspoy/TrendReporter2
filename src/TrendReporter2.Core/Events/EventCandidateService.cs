@@ -24,7 +24,7 @@ public sealed class EventCandidateService : IEventCandidateService
 
     public async Task<IReadOnlyList<EventCandidate>> RecallAsync(ContentItem item, DateTimeOffset now, CancellationToken cancellationToken)
     {
-        var sourceText = JoinText(item.Title, item.Summary, item.HoverText);
+        var sourceText = JoinText(item.Title, item.Summary);
         var sourceTokens = Tokenize(sourceText);
         var sourceNgrams = BuildNgrams(NormalizeForNgrams(sourceText));
         var candidates = await _repository.LoadRecallCandidatesAsync(
