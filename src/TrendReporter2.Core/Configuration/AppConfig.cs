@@ -138,6 +138,8 @@ public sealed class PusherConfig
 
     public string Secret { get; init; } = string.Empty;
 
+    public string Cate { get; init; } = "default";
+
     public string Channels { get; init; } = string.Empty;
 }
 

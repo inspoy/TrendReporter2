@@ -16,6 +16,7 @@ public sealed class FetchJob : IFetchJob
     private readonly IContentIngestService _contentIngestService;
     private readonly IEnrichmentService _enrichmentService;
     private readonly IEventMatcher _eventMatcher;
+    private readonly IEventScoringService _eventScoringService;
     private readonly IFetchRunRepository _fetchRunRepository;
     private readonly ILogger<FetchJob> _logger;
 
@@ -25,6 +26,7 @@ public sealed class FetchJob : IFetchJob
         IContentIngestService contentIngestService,
         IEnrichmentService enrichmentService,
         IEventMatcher eventMatcher,
+        IEventScoringService eventScoringService,
         IFetchRunRepository fetchRunRepository,
         ILogger<FetchJob> logger)
     {
@@ -33,6 +35,7 @@ public sealed class FetchJob : IFetchJob
         _contentIngestService = contentIngestService;
         _enrichmentService = enrichmentService;
         _eventMatcher = eventMatcher;
+        _eventScoringService = eventScoringService;
         _fetchRunRepository = fetchRunRepository;
         _logger = logger;
     }
@@ -59,12 +62,14 @@ public sealed class FetchJob : IFetchJob
                 cancellationToken);
             var enrichmentResult = await EnrichRunAsync(fetchRun.Id, startedAt, cancellationToken);
             var eventMatchResult = await MatchEventsAsync(fetchRun.Id, DateTimeOffset.UtcNow, cancellationToken);
+            var scoringResult = await ScoreAndPushRunAsync(fetchRun.Id, startedAt, DateTimeOffset.UtcNow, cancellationToken);
 
             fetchRun.SuccessSourceCount = sourceResults.Count(result => result.Success);
             fetchRun.FailureSourceCount = sourceResults.Count(result => !result.Success);
             fetchRun.FetchedItemCount = ingestResult.TotalCount;
             fetchRun.EnrichedItemCount = enrichmentResult.SucceededCount;
             fetchRun.MatchedEventCount = eventMatchResult.MappedItemCount;
+            fetchRun.PushedEventCount = scoringResult.PushedEventCount;
             fetchRun.Errors = sourceResults
                 .Where(result => !result.Success && !string.IsNullOrWhiteSpace(result.Error))
                 .Select(result => $"{result.Category}/{result.Source}: {result.Error}")
@@ -76,7 +81,7 @@ public sealed class FetchJob : IFetchJob
 
             var duration = (fetchRun.FinishedAt.Value - fetchRun.StartedAt).TotalSeconds;
             _logger.LogInformation(
-                "Fetch run {RunId} finished, cost {Cost:F1}s. Status={Status}, SuccessSources={SuccessSourceCount}, FailedSources={FailureSourceCount}, Items={FetchedItemCount}, Inserted={InsertedCount}, Updated={UpdatedCount}, Snapshots={SnapshotCount}, EnrichmentCandidates={EnrichmentCandidateCount}, Enriched={EnrichedItemCount}, EnrichmentFailed={EnrichmentFailedCount}, EnrichmentSkipped={EnrichmentSkippedCount}, MatchedEvents={MatchedEventCount}, CreatedEvents={CreatedEventCount}, MergedEvents={MergedEventCount}, ReactivatedEvents={ReactivatedEventCount}.",
+                "Fetch run {RunId} finished, cost {Cost:F1}s. Status={Status}, SuccessSources={SuccessSourceCount}, FailedSources={FailureSourceCount}, Items={FetchedItemCount}, Inserted={InsertedCount}, Updated={UpdatedCount}, Snapshots={SnapshotCount}, EnrichmentCandidates={EnrichmentCandidateCount}, Enriched={EnrichedItemCount}, EnrichmentFailed={EnrichmentFailedCount}, EnrichmentSkipped={EnrichmentSkippedCount}, MatchedEvents={MatchedEventCount}, CreatedEvents={CreatedEventCount}, MergedEvents={MergedEventCount}, ReactivatedEvents={ReactivatedEventCount}, ScoredEvents={ScoredEventCount}, EligibleEvents={EligibleEventCount}, PushedEvents={PushedEventCount}.",
                 fetchRun.Id,
                 duration,
                 fetchRun.Status,
@@ -93,7 +98,10 @@ public sealed class FetchJob : IFetchJob
                 eventMatchResult.MappedItemCount,
                 eventMatchResult.CreatedEventCount,
                 eventMatchResult.MergedEventCount,
-                eventMatchResult.ReactivatedEventCount);
+                eventMatchResult.ReactivatedEventCount,
+                scoringResult.ScoredEventCount,
+                scoringResult.EligibleEventCount,
+                scoringResult.PushedEventCount);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -136,6 +144,23 @@ public sealed class FetchJob : IFetchJob
         {
             _logger.LogWarning(ex, "Event matching failed for run={RunId}; fetch flow will continue.", runId);
             return new EventMatchRunResult(0, 0, 0, 0, 0, 0);
+        }
+    }
+
+    private async Task<EventScoringRunResult> ScoreAndPushRunAsync(
+        string runId,
+        DateTimeOffset startedAt,
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await _eventScoringService.ScoreAndPushRunAsync(runId, startedAt, now, cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(ex, "Event scoring and instant push failed for run={RunId}; fetch flow will continue.", runId);
+            return new EventScoringRunResult(0, 0, 0);
         }
     }
 

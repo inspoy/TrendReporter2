@@ -87,7 +87,8 @@ pushers:
   - type: unipush
     url: ""
     secret: "push-key"
-    channels: "misc"
+    channels: "gotify"
+    cate: "default"
 
 system:
   timeZone: "Asia/Shanghai"

@@ -15,6 +15,7 @@ using TrendReporter2.Infrastructure.Configuration;
 using TrendReporter2.Infrastructure.Llm;
 using TrendReporter2.Infrastructure.News;
 using TrendReporter2.Infrastructure.Persistence;
+using TrendReporter2.Infrastructure.Push;
 
 CliOptions options;
 AppConfig config;
@@ -63,6 +64,8 @@ builder.Services.AddHttpClient();
 builder.Services.AddHttpClient<INewsSourceClient, NewsNowClient>();
 builder.Services.AddHttpClient<IEnrichmentClient, WebExtractEnrichmentClient>();
 builder.Services.AddHttpClient<IClusterLlmClient, OpenAiClusterLlmClient>();
+builder.Services.AddHttpClient<IJudgeLlmClient, OpenAiJudgeLlmClient>();
+builder.Services.AddHttpClient<IPusher, UnipushPusher>();
 builder.Services.AddSingleton<IFetchJob, FetchJob>();
 builder.Services.AddSingleton<IDigestJob, EmptyDigestJob>();
 

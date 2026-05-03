@@ -63,6 +63,13 @@ public sealed class EnrichmentService : IEnrichmentService
         using var semaphore = new SemaphoreSlim(_config.System.MaxParallelEnrichment);
         var tasks = candidates.Select(async item =>
         {
+            if (Volatile.Read(ref attempted) >= limit)
+            {
+                MarkSkipped(item, "Per-run enrichment request limit reached.", startedAt);
+                Interlocked.Increment(ref skipped);
+                return;
+            }
+
             await semaphore.WaitAsync(cancellationToken);
             try
             {

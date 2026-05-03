@@ -1,0 +1,85 @@
+using System.Text;
+using Microsoft.Extensions.Logging;
+using Newtonsoft.Json;
+using TrendReporter2.Core.Configuration;
+using TrendReporter2.Core.Events;
+
+namespace TrendReporter2.Infrastructure.Push;
+
+public sealed class UnipushPusher : IPusher
+{
+    private readonly HttpClient _httpClient;
+    private readonly AppConfig _config;
+    private readonly ILogger<UnipushPusher> _logger;
+
+    public UnipushPusher(HttpClient httpClient, AppConfig config, ILogger<UnipushPusher> logger)
+    {
+        _httpClient = httpClient;
+        _config = config;
+        _logger = logger;
+    }
+
+    public string Type => "unipush";
+
+    public bool IsConfigured => GetConfig() is not null;
+
+    public async Task<PushResult> PushAsync(PushMessage message, CancellationToken cancellationToken)
+    {
+        var config = GetConfig();
+        var payload = JsonConvert.SerializeObject(new
+        {
+            cate = string.IsNullOrWhiteSpace(config?.Cate) ? "default" : config.Cate,
+            title = message.Title,
+            msg = message.Message,
+            link = message.Link
+        });
+
+        if (config is null)
+        {
+            return PushResult.Skipped("unipush is not configured", payload);
+        }
+
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Post, BuildEndpoint(config));
+            request.Headers.TryAddWithoutValidation("Push-Key", config.Secret.Trim());
+            request.Content = new StringContent(payload, Encoding.UTF8, "application/json");
+
+            using var response = await _httpClient.SendAsync(request, cancellationToken);
+            var responseBody = await response.Content.ReadAsStringAsync(cancellationToken);
+            if (response.IsSuccessStatusCode)
+            {
+                return new PushResult(true, payload, null);
+            }
+
+            var error = $"unipush http {(int)response.StatusCode}: {Truncate(responseBody, 300)}";
+            _logger.LogWarning("Unipush failed for eventId={EventId}. {Error}", message.EventId, error);
+            return new PushResult(false, payload, error);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex) when (ex is HttpRequestException or UriFormatException or TaskCanceledException)
+        {
+            _logger.LogWarning(ex, "Unipush request failed for eventId={EventId}.", message.EventId);
+            return new PushResult(false, payload, "unipush request failed");
+        }
+    }
+
+    private PusherConfig? GetConfig()
+        => _config.Pushers.FirstOrDefault(pusher =>
+            string.Equals(pusher.Type, Type, StringComparison.OrdinalIgnoreCase) &&
+            !string.IsNullOrWhiteSpace(pusher.Url) &&
+            !string.IsNullOrWhiteSpace(pusher.Secret));
+
+    private static Uri BuildEndpoint(PusherConfig config)
+    {
+        var separator = config.Url.Contains('?', StringComparison.Ordinal) ? "&" : "?";
+        var channels = Uri.EscapeDataString(config.Channels ?? string.Empty);
+        return new Uri(config.Url.Trim() + separator + "channels=" + channels);
+    }
+
+    private static string Truncate(string value, int maxLength)
+        => value.Length <= maxLength ? value : value[..maxLength];
+}

@@ -13,6 +13,18 @@ public interface IEventRepository
     Task UpsertEventAsync(EventAggregate eventAggregate, CancellationToken cancellationToken);
 
     Task<bool> MapEventItemIfMissingAsync(EventItem eventItem, CancellationToken cancellationToken);
+
+    Task<IReadOnlyList<RunEventScoringInput>> LoadRunEventScoringInputsAsync(string runId, CancellationToken cancellationToken);
+
+    Task<IReadOnlyList<EventScoreSnapshot>> LoadRecentScoreSnapshotsAsync(IReadOnlyList<string> eventIds, DateTimeOffset since, CancellationToken cancellationToken);
+
+    Task InsertEventScoreSnapshotAsync(EventScoreSnapshot snapshot, CancellationToken cancellationToken);
+
+    Task<bool> InsertPushLogIfMissingAsync(PushLog pushLog, CancellationToken cancellationToken);
+
+    Task UpdatePushLogAsync(PushLog pushLog, CancellationToken cancellationToken);
+
+    Task UpdateEventsAsync(IReadOnlyList<EventAggregate> events, CancellationToken cancellationToken);
 }
 
 public interface IEventCandidateService
@@ -30,6 +42,27 @@ public interface IClusterLlmClient
 public interface IEventMatcher
 {
     Task<EventMatchRunResult> MatchRunAsync(string runId, DateTimeOffset now, CancellationToken cancellationToken);
+}
+
+public interface IEventScoringService
+{
+    Task<EventScoringRunResult> ScoreAndPushRunAsync(string runId, DateTimeOffset runStartedAt, DateTimeOffset now, CancellationToken cancellationToken);
+}
+
+public interface IJudgeLlmClient
+{
+    bool IsConfigured { get; }
+
+    Task<JudgeResult> JudgeAsync(JudgeRequest request, CancellationToken cancellationToken);
+}
+
+public interface IPusher
+{
+    string Type { get; }
+
+    bool IsConfigured { get; }
+
+    Task<PushResult> PushAsync(PushMessage message, CancellationToken cancellationToken);
 }
 
 public sealed record EventCandidate(
