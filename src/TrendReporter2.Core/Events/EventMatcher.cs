@@ -38,21 +38,28 @@ public sealed class EventMatcher : IEventMatcher
     public async Task<EventMatchRunResult> MatchRunAsync(string runId, DateTimeOffset now, CancellationToken cancellationToken)
     {
         var items = await _repository.LoadUnmappedRunContentItemsAsync(runId, cancellationToken);
+        var precomputedMatches = await PrecomputeMatchesAsync(items, now, cancellationToken);
         var created = 0;
         var merged = 0;
         var reactivated = 0;
         var mapped = 0;
         var skipped = 0;
+        var hasCommittedEventChange = false;
 
-        foreach (var item in items)
+        foreach (var precomputedMatch in precomputedMatches)
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            var candidates = await _candidateService.RecallAsync(item, now, cancellationToken);
-            var match = candidates.Count > 0 && _clusterLlmClient.IsConfigured
-                ? await _clusterLlmClient.MatchAsync(new ClusterMatchRequest(item, candidates), cancellationToken)
-                : ClusterMatchResult.CreateNew(candidates.Count == 0 ? "no recalled candidates" : "cluster llm is not configured");
-            var targetEvent = await ResolveTargetEventAsync(item, candidates, match, now, cancellationToken);
+            var commitMatch = hasCommittedEventChange && ShouldRevalidateBeforeCommit(precomputedMatch.Item, precomputedMatch.Candidates, precomputedMatch.Match)
+                ? await RecallAndMatchAsync(precomputedMatch.Item, now, cancellationToken)
+                : precomputedMatch;
+            var targetEvent = await ResolveTargetEventAsync(
+                commitMatch.Item,
+                commitMatch.Candidates,
+                commitMatch.Match,
+                now,
+                cancellationToken);
+            hasCommittedEventChange = true;
             if (targetEvent.CreatedNew)
             {
                 created++;
@@ -68,9 +75,9 @@ public sealed class EventMatcher : IEventMatcher
 
             var mappedNow = await _repository.MapEventItemIfMissingAsync(new EventItem
             {
-                Id = BuildEventItemId(targetEvent.Event.Id, item.Id),
+                Id = BuildEventItemId(targetEvent.Event.Id, commitMatch.Item.Id),
                 EventId = targetEvent.Event.Id,
-                ContentItemId = item.Id,
+                ContentItemId = commitMatch.Item.Id,
                 Confidence = targetEvent.Confidence,
                 MatchedAt = now,
                 MatchReason = targetEvent.Reason
@@ -89,6 +96,69 @@ public sealed class EventMatcher : IEventMatcher
         return new EventMatchRunResult(items.Count, created, merged, reactivated, mapped, skipped);
     }
 
+    private async Task<IReadOnlyList<PrecomputedEventMatch>> PrecomputeMatchesAsync(
+        IReadOnlyList<ContentItem> items,
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
+        var maxParallelLlm = Math.Max(1, _config.System.MaxParallelLlm);
+        using var semaphore = new SemaphoreSlim(maxParallelLlm);
+        var tasks = items.Select(async item =>
+        {
+            await semaphore.WaitAsync(cancellationToken);
+            try
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                return await RecallAndMatchAsync(item, now, cancellationToken);
+            }
+            finally
+            {
+                semaphore.Release();
+            }
+        });
+
+        return await Task.WhenAll(tasks);
+    }
+
+    private async Task<PrecomputedEventMatch> RecallAndMatchAsync(
+        ContentItem item,
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
+        var candidates = await _candidateService.RecallAsync(item, now, cancellationToken);
+        var match = candidates.Count > 0 && _clusterLlmClient.IsConfigured
+            ? await _clusterLlmClient.MatchAsync(new ClusterMatchRequest(item, candidates), cancellationToken)
+            : ClusterMatchResult.CreateNew(candidates.Count == 0 ? "no recalled candidates" : "cluster llm is not configured");
+
+        return new PrecomputedEventMatch(item, candidates, match);
+    }
+
+    private bool ShouldRevalidateBeforeCommit(
+        ContentItem item,
+        IReadOnlyList<EventCandidate> candidates,
+        ClusterMatchResult match)
+        => !CanUseExistingTarget(item, candidates, match);
+
+    private bool CanUseExistingTarget(
+        ContentItem item,
+        IReadOnlyList<EventCandidate> candidates,
+        ClusterMatchResult match)
+    {
+        var matchedCandidate = FindMatchedCandidate(candidates, match);
+        return CanMergeSameEvent(match, matchedCandidate) || CanMergeFollowUp(item, match, matchedCandidate);
+    }
+
+    private bool CanMergeSameEvent(ClusterMatchResult match, EventCandidate? matchedCandidate)
+        => match.Decision == ClusterDecisions.SameEvent &&
+            match.Confidence >= _config.Analysis.Event.MergeThreshold &&
+            matchedCandidate is not null;
+
+    private bool CanMergeFollowUp(ContentItem item, ClusterMatchResult match, EventCandidate? matchedCandidate)
+        => match.Decision == ClusterDecisions.FollowUp &&
+            match.Confidence >= _config.Analysis.Event.StaleMergeThreshold &&
+            matchedCandidate is not null &&
+            HasConservativeFollowUpSignal(item, matchedCandidate.Event);
+
     private async Task<EventMatchOutcome> ResolveTargetEventAsync(
         ContentItem item,
         IReadOnlyList<EventCandidate> candidates,
@@ -97,13 +167,8 @@ public sealed class EventMatcher : IEventMatcher
         CancellationToken cancellationToken)
     {
         var matchedCandidate = FindMatchedCandidate(candidates, match);
-        var canMergeSameEvent = match.Decision == ClusterDecisions.SameEvent &&
-            match.Confidence >= _config.Analysis.Event.MergeThreshold &&
-            matchedCandidate is not null;
-        var canMergeFollowUp = match.Decision == ClusterDecisions.FollowUp &&
-            match.Confidence >= _config.Analysis.Event.StaleMergeThreshold &&
-            matchedCandidate is not null &&
-            HasConservativeFollowUpSignal(item, matchedCandidate.Event);
+        var canMergeSameEvent = CanMergeSameEvent(match, matchedCandidate);
+        var canMergeFollowUp = CanMergeFollowUp(item, match, matchedCandidate);
 
         if (!canMergeSameEvent && !canMergeFollowUp)
         {
@@ -377,6 +442,11 @@ public sealed class EventMatcher : IEventMatcher
         var hash = SHA256.HashData(Encoding.UTF8.GetBytes(value.Trim()));
         return Convert.ToHexString(hash)[..20].ToLowerInvariant();
     }
+
+    private sealed record PrecomputedEventMatch(
+        ContentItem Item,
+        IReadOnlyList<EventCandidate> Candidates,
+        ClusterMatchResult Match);
 
     private sealed record EventMatchOutcome(
         EventAggregate Event,

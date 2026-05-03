@@ -1,5 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
+using Microsoft.Extensions.Logging;
+using Newtonsoft.Json;
 using TrendReporter2.Core.Configuration;
 
 namespace TrendReporter2.Core.Events;
@@ -7,21 +9,28 @@ namespace TrendReporter2.Core.Events;
 public sealed class EventScoringService : IEventScoringService
 {
     private const double ReactivationBonusValue = 10;
+    private static readonly EventId PushSkippedEventId = new(2001, "PushSkipped");
+    private static readonly EventId PushAttemptEventId = new(2002, "PushAttempt");
+    private static readonly EventId PushSucceededEventId = new(2003, "PushSucceeded");
+    private static readonly EventId PushFailedEventId = new(2004, "PushFailed");
     private readonly AppConfig _config;
     private readonly IEventRepository _repository;
     private readonly IJudgeLlmClient _judgeLlmClient;
     private readonly IEnumerable<IPusher> _pushers;
+    private readonly ILogger<EventScoringService> _logger;
 
     public EventScoringService(
         AppConfig config,
         IEventRepository repository,
         IJudgeLlmClient judgeLlmClient,
-        IEnumerable<IPusher> pushers)
+        IEnumerable<IPusher> pushers,
+        ILogger<EventScoringService> logger)
     {
         _config = config;
         _repository = repository;
         _judgeLlmClient = judgeLlmClient;
         _pushers = pushers;
+        _logger = logger;
     }
 
     public async Task<EventScoringRunResult> ScoreAndPushRunAsync(
@@ -45,56 +54,67 @@ public sealed class EventScoringService : IEventScoringService
 
         var eligibleCount = 0;
         var pushedCount = 0;
-
-        foreach (var input in inputs)
+        var maxParallelLlm = Math.Max(1, _config.System.MaxParallelLlm);
+        using var semaphore = new SemaphoreSlim(maxParallelLlm);
+        var tasks = inputs.Select(async input =>
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            var priorSnapshots = recentByEvent.GetValueOrDefault(input.Event.Id) ?? [];
-            ApplyBlacklist(input.Event);
-            var score = BuildBaseScore(runId, input, priorSnapshots, runStartedAt, now);
-            var eligibleBeforeJudge = IsEligible(score, input.Event, runStartedAt, now);
-
-            var judge = eligibleBeforeJudge || IsNearEligibility(score)
-                ? await _judgeLlmClient.JudgeAsync(new JudgeRequest(input.Event, score, input.Evidence, score.TriggerReasons), cancellationToken)
-                : JudgeResult.Neutral("event did not reach judge threshold");
-
-            ApplyJudge(score, judge);
-            var eligible = IsEligible(score, input.Event, runStartedAt, now);
-            if (eligible)
+            await semaphore.WaitAsync(cancellationToken);
+            try
             {
-                eligibleCount++;
-            }
+                cancellationToken.ThrowIfCancellationRequested();
+                var priorSnapshots = recentByEvent.GetValueOrDefault(input.Event.Id) ?? [];
+                ApplyBlacklist(input.Event);
+                var score = BuildBaseScore(runId, input, priorSnapshots, runStartedAt, now);
+                var eligibleBeforeJudge = IsEligible(score, input.Event, runStartedAt, now);
 
-            var progress = BuildProgress(input, score, priorSnapshots, judge, runStartedAt, now);
-            ApplyProgress(input.Event, progress, judge, now);
-            score.CurrentStage = input.Event.CurrentStage;
+                var judge = eligibleBeforeJudge || IsNearEligibility(score)
+                    ? await _judgeLlmClient.JudgeAsync(new JudgeRequest(input.Event, score, input.Evidence, score.TriggerReasons), cancellationToken)
+                    : JudgeResult.Neutral("event did not reach judge threshold");
 
-            if (eligible && ShouldPush(input.Event, score))
-            {
-                var message = BuildPushMessage(runId, input, score);
-                var pushAttempt = await PushAndLogAsync(message, now, cancellationToken);
-                if (pushAttempt.Recorded)
+                ApplyJudge(score, judge);
+                var eligible = IsEligible(score, input.Event, runStartedAt, now);
+                if (eligible)
                 {
-                    input.Event.LastPushedAt = now;
-                    input.Event.PushCount++;
-                    input.Event.LastPushScore = score.TotalScore;
-                    input.Event.LastPushRankScore = score.RankScore;
-                    input.Event.LastPushSourceCount = score.UniqueSourceCount;
-                    if (pushAttempt.Success)
+                    Interlocked.Increment(ref eligibleCount);
+                }
+
+                var progress = BuildProgress(input, score, priorSnapshots, judge, runStartedAt, now);
+                ApplyProgress(input.Event, progress, judge, now);
+                score.CurrentStage = input.Event.CurrentStage;
+
+                if (eligible && ShouldPush(input.Event, score))
+                {
+                    var message = BuildPushMessage(runId, input, score);
+                    var pushAttempt = await PushAndLogAsync(message, now, cancellationToken);
+                    if (pushAttempt.Recorded)
                     {
-                        pushedCount++;
+                        input.Event.LastPushedAt = now;
+                        input.Event.PushCount++;
+                        input.Event.LastPushScore = score.TotalScore;
+                        input.Event.LastPushRankScore = score.RankScore;
+                        input.Event.LastPushSourceCount = score.UniqueSourceCount;
+                        if (pushAttempt.Success)
+                        {
+                            Interlocked.Increment(ref pushedCount);
+                        }
                     }
                 }
+
+                var snapshot = ToSnapshot(score);
+                await _repository.InsertEventScoreSnapshotAsync(snapshot, cancellationToken);
+
+                input.Event.UpdatedAt = now;
+                await _repository.UpdateEventsAsync([input.Event], cancellationToken);
             }
+            finally
+            {
+                semaphore.Release();
+            }
+        });
 
-            var snapshot = ToSnapshot(score);
-            await _repository.InsertEventScoreSnapshotAsync(snapshot, cancellationToken);
+        await Task.WhenAll(tasks);
 
-            input.Event.UpdatedAt = now;
-            await _repository.UpdateEventsAsync([input.Event], cancellationToken);
-        }
-
-        return new EventScoringRunResult(inputs.Count, eligibleCount, pushedCount);
+        return new EventScoringRunResult(inputs.Count, Volatile.Read(ref eligibleCount), Volatile.Read(ref pushedCount));
     }
 
     private EventScore BuildBaseScore(
@@ -317,6 +337,8 @@ public sealed class EventScoringService : IEventScoringService
             PushType = message.PushType,
             PushedAt = now,
             Title = message.Title,
+            Reason = message.Reason,
+            Content = message.Content,
             Payload = BuildUnsentPayload(message),
             DedupKey = message.DedupKey,
             Success = false,
@@ -325,8 +347,23 @@ public sealed class EventScoringService : IEventScoringService
         var inserted = await _repository.InsertPushLogIfMissingAsync(pushLog, cancellationToken);
         if (!inserted)
         {
+            _logger.LogInformation(
+                PushSkippedEventId,
+                "Skipped push insertion for eventId={EventId}. Reason={Reason}, Title={Title}, Content={Content}",
+                message.EventId,
+                message.Reason,
+                message.Title,
+                Truncate(message.Content, 500));
             return new PushAttemptResult(false, false);
         }
+
+        _logger.LogInformation(
+            PushAttemptEventId,
+            "Attempting push for eventId={EventId}. Reason={Reason}, Title={Title}, Content={Content}",
+            message.EventId,
+            message.Reason,
+            message.Title,
+            Truncate(message.Content, 500));
 
         var pusher = _pushers.FirstOrDefault(pusher => pusher.IsConfigured);
         var result = pusher is null
@@ -336,6 +373,28 @@ public sealed class EventScoringService : IEventScoringService
         pushLog.Success = result.Success;
         pushLog.Error = result.Error;
         await _repository.UpdatePushLogAsync(pushLog, cancellationToken);
+
+        if (result.Success)
+        {
+            _logger.LogInformation(
+                PushSucceededEventId,
+                "Push succeeded for eventId={EventId}. Reason={Reason}, Title={Title}, Content={Content}",
+                message.EventId,
+                message.Reason,
+                message.Title,
+                Truncate(message.Content, 500));
+        }
+        else
+        {
+            _logger.LogWarning(
+                PushFailedEventId,
+                "Push failed or skipped for eventId={EventId}. Reason={Reason}, Title={Title}, Content={Content}, Error={Error}",
+                message.EventId,
+                message.Reason,
+                message.Title,
+                Truncate(message.Content, 500),
+                result.Error);
+        }
 
         return new PushAttemptResult(result.Success, true);
     }
@@ -353,10 +412,13 @@ public sealed class EventScoringService : IEventScoringService
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .Take(3)
             .ToList();
+        var message = $"[{stage}] {summary} Why now: {FormatReason(reason)}. Sources: {string.Join(", ", sources)}. Score {score.TotalScore:F1}, heat {score.HeatValue:F2}.";
         return new PushMessage
         {
             Title = input.Event.CanonicalTitle,
-            Message = $"[{stage}] {summary} Why now: {FormatReason(reason)}. Sources: {string.Join(", ", sources)}. Score {score.TotalScore:F1}, heat {score.HeatValue:F2}.",
+            Message = message,
+            Reason = reason,
+            Content = message,
             Link = link,
             EventId = input.Event.Id,
             PushType = PushTypes.Instant,
@@ -467,14 +529,10 @@ public sealed class EventScoringService : IEventScoringService
         => reason.Replace('_', ' ');
 
     private static string BuildUnsentPayload(PushMessage message)
-        => $"{{\"cate\":\"default\",\"title\":\"{EscapeJson(message.Title)}\",\"msg\":\"{EscapeJson(message.Message)}\",\"link\":\"{EscapeJson(message.Link)}\"}}";
+        => JsonConvert.SerializeObject(new { cate = "default", title = message.Title, msg = message.Message, link = message.Link });
 
-    private static string EscapeJson(string? value)
-        => (value ?? string.Empty)
-            .Replace("\\", "\\\\", StringComparison.Ordinal)
-            .Replace("\"", "\\\"", StringComparison.Ordinal)
-            .Replace("\r", "\\r", StringComparison.Ordinal)
-            .Replace("\n", "\\n", StringComparison.Ordinal);
+    private static string Truncate(string value, int maxLength)
+        => value.Length <= maxLength ? value : value[..maxLength];
 
     private static double Clamp01(double value) => Math.Clamp(value, 0, 1);
 
