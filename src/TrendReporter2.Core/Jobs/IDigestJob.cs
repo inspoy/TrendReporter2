@@ -2,5 +2,5 @@ namespace TrendReporter2.Core.Jobs;
 
 public interface IDigestJob
 {
-    Task RunAsync(CancellationToken cancellationToken);
+    Task RunAsync(DateOnly localDate, string slotTime, DateTimeOffset localNow, CancellationToken cancellationToken);
 }

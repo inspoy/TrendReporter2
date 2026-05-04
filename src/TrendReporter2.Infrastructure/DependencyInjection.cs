@@ -22,6 +22,7 @@ public static class DependencyInjection
         services.AddSingleton<IContentIngestService, ContentIngestService>();
         services.AddSingleton<IEnrichmentService, EnrichmentService>();
         services.AddSingleton<IEventRepository, LiteDbEventRepository>();
+        services.AddSingleton<IAppStateRepository, LiteDbAppStateRepository>();
         services.AddSingleton<IEventCandidateService, EventCandidateService>();
         services.AddSingleton<IEventMatcher, EventMatcher>();
         services.AddSingleton<IEventScoringService, EventScoringService>();

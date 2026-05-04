@@ -184,6 +184,51 @@ public sealed class LiteDbEventRepository : IEventRepository
         return Task.FromResult<IReadOnlyList<EventScoreSnapshot>>(result);
     }
 
+    public Task<IReadOnlyList<DigestCandidate>> LoadDigestCandidatesAsync(DateTimeOffset since, int limit, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        if (limit <= 0)
+        {
+            return Task.FromResult<IReadOnlyList<DigestCandidate>>([]);
+        }
+
+        using var database = _connectionFactory.Open();
+        var activeEvents = database.GetCollection<EventAggregate>(TrendCollectionNames.Event)
+            .Find(eventAggregate =>
+                eventAggregate.Status == EventStatus.Active &&
+                eventAggregate.LastSeenAt >= since &&
+                !eventAggregate.IsBlacklisted)
+            .ToDictionary(eventAggregate => eventAggregate.Id, StringComparer.Ordinal);
+        if (activeEvents.Count == 0)
+        {
+            return Task.FromResult<IReadOnlyList<DigestCandidate>>([]);
+        }
+
+        var eventIds = activeEvents.Keys.ToHashSet(StringComparer.Ordinal);
+        var latestScores = database.GetCollection<EventScoreSnapshot>(TrendCollectionNames.EventScoreSnapshot)
+            .Find(snapshot => eventIds.Contains(snapshot.EventId) && snapshot.CalculatedAt >= since)
+            .GroupBy(snapshot => snapshot.EventId, StringComparer.Ordinal)
+            .Select(group => group
+                .OrderByDescending(snapshot => snapshot.CalculatedAt)
+                .ThenByDescending(snapshot => snapshot.TotalScore)
+                .ThenBy(snapshot => snapshot.Id, StringComparer.Ordinal)
+                .First())
+            .ToList();
+
+        var result = latestScores
+            .Where(score => activeEvents.ContainsKey(score.EventId))
+            .Select(score => new DigestCandidate(activeEvents[score.EventId], score))
+            .OrderByDescending(candidate => candidate.Score.TotalScore)
+            .ThenByDescending(candidate => candidate.Score.CalculatedAt)
+            .ThenByDescending(candidate => candidate.Event.LastSeenAt)
+            .ThenBy(candidate => candidate.Event.Id, StringComparer.Ordinal)
+            .Take(limit)
+            .ToList();
+
+        return Task.FromResult<IReadOnlyList<DigestCandidate>>(result);
+    }
+
     public Task InsertEventScoreSnapshotAsync(EventScoreSnapshot snapshot, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();

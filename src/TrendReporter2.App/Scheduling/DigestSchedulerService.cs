@@ -11,6 +11,8 @@ public sealed class DigestSchedulerService : BackgroundService
     private readonly IDigestJob _digestJob;
     private readonly ILogger _logger;
     private readonly TimeZoneInfo _timeZone;
+    private readonly SemaphoreSlim _runLock = new(1, 1);
+    private string? _lastTriggeredSlot;
 
     public DigestSchedulerService(
         AppConfig config,
@@ -36,14 +38,35 @@ public sealed class DigestSchedulerService : BackgroundService
         {
             var localNow = TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, _timeZone);
             var currentTime = localNow.ToString("HH:mm");
+            var currentSlot = $"{localNow:yyyy-MM-dd}:{currentTime}";
 
-            if (_config.Analysis.Push.PushTime.Contains(currentTime, StringComparer.Ordinal))
+            if (_config.Analysis.Push.PushTime.Contains(currentTime, StringComparer.Ordinal) && !string.Equals(_lastTriggeredSlot, currentSlot, StringComparison.Ordinal))
             {
-                _logger.LogInformation("摘要调度触发，本地时间={LocalTime}。", currentTime);
-                await _digestJob.RunAsync(stoppingToken);
+                _lastTriggeredSlot = currentSlot;
+                await TryRunDigestAsync(DateOnly.FromDateTime(localNow.DateTime), currentTime, localNow, stoppingToken);
             }
 
             await timer.WaitForNextTickAsync(stoppingToken);
+        }
+    }
+
+    private async Task TryRunDigestAsync(DateOnly localDate, string slotTime, DateTimeOffset localNow, CancellationToken cancellationToken)
+    {
+        if (!await _runLock.WaitAsync(0, cancellationToken))
+        {
+            _logger.LogWarning("跳过本次摘要调度，上一次运行尚未完成。时段={SlotTime}。", slotTime);
+            return;
+        }
+
+        try
+        {
+            _logger.LogInformation("摘要调度触发，本地日期={LocalDate}，时段={SlotTime}。", localDate, slotTime);
+            await _digestJob.RunAsync(localDate, slotTime, localNow, cancellationToken);
+            _logger.LogInformation("摘要调度完成，本地日期={LocalDate}，时段={SlotTime}。", localDate, slotTime);
+        }
+        finally
+        {
+            _runLock.Release();
         }
     }
 }

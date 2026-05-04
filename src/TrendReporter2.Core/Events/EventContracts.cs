@@ -20,6 +20,8 @@ public interface IEventRepository
 
     Task<IReadOnlyList<EventScoreSnapshot>> LoadRecentScoreSnapshotsAsync(IReadOnlyList<string> eventIds, DateTimeOffset since, CancellationToken cancellationToken);
 
+    Task<IReadOnlyList<DigestCandidate>> LoadDigestCandidatesAsync(DateTimeOffset since, int limit, CancellationToken cancellationToken);
+
     Task InsertEventScoreSnapshotAsync(EventScoreSnapshot snapshot, CancellationToken cancellationToken);
 
     Task<bool> InsertPushLogIfMissingAsync(PushLog pushLog, CancellationToken cancellationToken);
@@ -67,10 +69,21 @@ public interface IPusher
     Task<PushResult> PushAsync(PushMessage message, CancellationToken cancellationToken);
 }
 
+public interface IAppStateRepository
+{
+    Task<AppState?> GetAsync(string key, CancellationToken cancellationToken);
+
+    Task UpsertAsync(AppState state, CancellationToken cancellationToken);
+}
+
 public sealed record EventCandidate(
     EventAggregate Event,
     double Score,
     IReadOnlyList<string> MatchedFeatures);
+
+public sealed record DigestCandidate(
+    EventAggregate Event,
+    EventScoreSnapshot Score);
 
 public sealed record ClusterMatchRequest(
     ContentItem Item,

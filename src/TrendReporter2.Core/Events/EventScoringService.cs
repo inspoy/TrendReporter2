@@ -64,7 +64,7 @@ public sealed class EventScoringService : IEventScoringService
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 var priorSnapshots = recentByEvent.GetValueOrDefault(input.Event.Id) ?? [];
-                ApplyBlacklist(input.Event);
+                EventBlacklistPolicy.Apply(input.Event, _config.Filters);
                 var score = BuildBaseScore(runId, input, priorSnapshots, runStartedAt, now);
                 var eligibleBeforeJudge = IsEligible(score, input.Event, runStartedAt, now);
 
@@ -442,20 +442,6 @@ public sealed class EventScoringService : IEventScoringService
             PushType = PushTypes.Instant,
             DedupKey = $"instant:{input.Event.Id}:{runId}:{reason}"
         };
-    }
-
-    private void ApplyBlacklist(EventAggregate eventAggregate)
-    {
-        var text = string.Join(' ', eventAggregate.CanonicalTitle, eventAggregate.Summary);
-        var keyword = _config.Filters.BlacklistKeywords
-            .FirstOrDefault(keyword => !string.IsNullOrWhiteSpace(keyword) && text.Contains(keyword, StringComparison.OrdinalIgnoreCase));
-        if (keyword is null)
-        {
-            return;
-        }
-
-        eventAggregate.IsBlacklisted = true;
-        eventAggregate.BlacklistReason = $"匹配到黑名单关键词: {keyword}";
     }
 
     private bool HasRisingTrend(EventScore score, double trendHeat)

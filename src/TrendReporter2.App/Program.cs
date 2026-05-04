@@ -67,9 +67,9 @@ builder.Services.AddHttpClient<IClusterLlmClient, ClusterLlmClient>();
 builder.Services.AddHttpClient<IJudgeLlmClient, JudgeLlmClient>();
 builder.Services.AddHttpClient<IPusher, UnipushPusher>();
 builder.Services.AddSingleton<IFetchJob, FetchJob>();
-builder.Services.AddSingleton<IDigestJob, EmptyDigestJob>();
+builder.Services.AddSingleton<IDigestJob, DigestJob>();
 
-if (!options.ValidateOnly && !options.FetchOnce)
+if (!options.ValidateOnly && !options.FetchOnce && !options.DigestOnce)
 {
     builder.Services.AddHostedService<FetchSchedulerService>();
     builder.Services.AddHostedService<DigestSchedulerService>();
@@ -92,6 +92,18 @@ if (options.FetchOnce)
     logger.LogInformation("单次抓取模式已启动。");
     await host.Services.GetRequiredService<IFetchJob>().RunAsync(CancellationToken.None);
     logger.LogInformation("单次抓取模式已完成。");
+    return;
+}
+
+if (options.DigestOnce)
+{
+    var timeZone = TimeZoneResolver.Find(config.System.TimeZone);
+    var localNow = TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, timeZone);
+    var slotTime = localNow.ToString("HH:mm");
+    var localDate = DateOnly.FromDateTime(localNow.DateTime);
+    logger.LogInformation("单次摘要推送模式已启动。本地日期={LocalDate}，时段={SlotTime}。", localDate, slotTime);
+    await host.Services.GetRequiredService<IDigestJob>().RunAsync(localDate, slotTime, localNow, CancellationToken.None);
+    logger.LogInformation("单次摘要推送模式已完成。");
     return;
 }
 
@@ -124,6 +136,8 @@ internal sealed record CliOptions(string ConfigPath, CliMode Mode, DataViewOptio
 
     public bool FetchOnce => Mode == CliMode.FetchOnce;
 
+    public bool DigestOnce => Mode == CliMode.DigestOnce;
+
     public static CliOptions Parse(string[] args)
     {
         var configPath = "config.yaml";
@@ -152,9 +166,9 @@ internal sealed record CliOptions(string ConfigPath, CliMode Mode, DataViewOptio
 
             if (arg.Equals("data-view", StringComparison.OrdinalIgnoreCase))
             {
-                if (mode is CliMode.Validate or CliMode.FetchOnce)
+                if (mode is CliMode.Validate or CliMode.FetchOnce or CliMode.DigestOnce)
                 {
-                    throw new ArgumentException("data-view 不能与 validate 或 fetch-once 同时使用。");
+                    throw new ArgumentException("data-view 不能与 validate、fetch-once 或 digest-once 同时使用。");
                 }
 
                 if (mode == CliMode.DataView)
@@ -174,9 +188,9 @@ internal sealed record CliOptions(string ConfigPath, CliMode Mode, DataViewOptio
                     throw new ArgumentException("validate 不能与 data-view 同时使用。");
                 }
 
-                if (mode == CliMode.FetchOnce)
+                if (mode is CliMode.FetchOnce or CliMode.DigestOnce)
                 {
-                    throw new ArgumentException("请只选择一种模式: validate、fetch-once 或 data-view。");
+                    throw new ArgumentException("请只选择一种模式: validate、fetch-once、digest-once 或 data-view。");
                 }
 
                 mode = CliMode.Validate;
@@ -190,12 +204,28 @@ internal sealed record CliOptions(string ConfigPath, CliMode Mode, DataViewOptio
                     throw new ArgumentException("fetch-once 不能与 data-view 同时使用。");
                 }
 
-                if (mode == CliMode.Validate)
+                if (mode is CliMode.Validate or CliMode.DigestOnce)
                 {
-                    throw new ArgumentException("请只选择一种模式: validate、fetch-once 或 data-view。");
+                    throw new ArgumentException("请只选择一种模式: validate、fetch-once、digest-once 或 data-view。");
                 }
 
                 mode = CliMode.FetchOnce;
+                continue;
+            }
+
+            if (arg.Equals("digest-once", StringComparison.OrdinalIgnoreCase))
+            {
+                if (mode == CliMode.DataView)
+                {
+                    throw new ArgumentException("digest-once 不能与 data-view 同时使用。");
+                }
+
+                if (mode is CliMode.Validate or CliMode.FetchOnce)
+                {
+                    throw new ArgumentException("请只选择一种模式: validate、fetch-once、digest-once 或 data-view。");
+                }
+
+                mode = CliMode.DigestOnce;
                 continue;
             }
 
@@ -214,7 +244,7 @@ internal sealed record CliOptions(string ConfigPath, CliMode Mode, DataViewOptio
             {
                 if (mode != CliMode.DataView)
                 {
-                    throw new ArgumentException("未知参数 '--limit'。用法: TrendReporter2.App [validate | fetch-once | data-view <collection> [--limit <n>] [--json] [--config <path>]]。");
+                    throw new ArgumentException("未知参数 '--limit'。用法: TrendReporter2.App [validate | fetch-once | digest-once | data-view <collection> [--limit <n>] [--json] [--config <path>]]。");
                 }
 
                 if (i + 1 >= args.Length)
@@ -235,14 +265,14 @@ internal sealed record CliOptions(string ConfigPath, CliMode Mode, DataViewOptio
             {
                 if (mode != CliMode.DataView)
                 {
-                    throw new ArgumentException("未知参数 '--json'。用法: TrendReporter2.App [validate | fetch-once | data-view <collection> [--limit <n>] [--json] [--config <path>]]。");
+                    throw new ArgumentException("未知参数 '--json'。用法: TrendReporter2.App [validate | fetch-once | digest-once | data-view <collection> [--limit <n>] [--json] [--config <path>]]。");
                 }
 
                 json = true;
                 continue;
             }
 
-            throw new ArgumentException($"未知参数 '{arg}'。用法: TrendReporter2.App [validate | fetch-once | data-view <collection> [--limit <n>] [--json] [--config <path>]]。");
+            throw new ArgumentException($"未知参数 '{arg}'。用法: TrendReporter2.App [validate | fetch-once | digest-once | data-view <collection> [--limit <n>] [--json] [--config <path>]]。");
         }
 
         if (expectCollection)
@@ -274,6 +304,7 @@ internal enum CliMode
     Background,
     Validate,
     FetchOnce,
+    DigestOnce,
     DataView
 }
 
