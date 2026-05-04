@@ -46,13 +46,6 @@ public sealed class LiteDbEventRepository : IEventRepository
         var staleCutoff = now.AddDays(-Math.Max(1, archiveRecallDays));
         using var database = _connectionFactory.Open();
         var events = database.GetCollection<EventAggregate>(TrendCollectionNames.Event);
-        var staleCutoffByHours = now.AddHours(-Math.Max(1, staleHours));
-        foreach (var activeEvent in events.Find(eventAggregate => eventAggregate.Status == EventStatus.Active && eventAggregate.LastSeenAt < staleCutoffByHours))
-        {
-            activeEvent.Status = EventStatus.Stale;
-            activeEvent.UpdatedAt = now;
-            events.Update(activeEvent);
-        }
 
         var result = events
             .Find(eventAggregate =>
@@ -61,6 +54,27 @@ public sealed class LiteDbEventRepository : IEventRepository
             .ToList();
 
         return Task.FromResult<IReadOnlyList<EventAggregate>>(result);
+    }
+
+    public Task MarkStaleEventsAsync(DateTimeOffset now, int staleHours, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        using var database = _connectionFactory.Open();
+        var events = database.GetCollection<EventAggregate>(TrendCollectionNames.Event);
+        var staleCutoffByHours = now.AddHours(-Math.Max(1, staleHours));
+        var staleEvents = events
+            .Find(eventAggregate => eventAggregate.Status == EventStatus.Active && eventAggregate.LastSeenAt < staleCutoffByHours)
+            .ToList();
+
+        foreach (var activeEvent in staleEvents)
+        {
+            activeEvent.Status = EventStatus.Stale;
+            activeEvent.UpdatedAt = now;
+            events.Update(activeEvent);
+        }
+
+        return Task.CompletedTask;
     }
 
     public Task<EventAggregate?> GetEventAsync(string eventId, CancellationToken cancellationToken)

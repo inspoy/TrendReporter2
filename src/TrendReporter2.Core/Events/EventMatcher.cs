@@ -38,6 +38,7 @@ public sealed class EventMatcher : IEventMatcher
     public async Task<EventMatchRunResult> MatchRunAsync(string runId, DateTimeOffset now, CancellationToken cancellationToken)
     {
         var items = await _repository.LoadUnmappedRunContentItemsAsync(runId, cancellationToken);
+        await _repository.MarkStaleEventsAsync(now, _config.Analysis.Event.StaleHours, cancellationToken);
         var precomputedMatches = await PrecomputeMatchesAsync(items, now, cancellationToken);
         var created = 0;
         var merged = 0;

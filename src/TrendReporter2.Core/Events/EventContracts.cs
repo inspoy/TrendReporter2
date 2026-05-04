@@ -8,6 +8,8 @@ public interface IEventRepository
 
     Task<IReadOnlyList<EventAggregate>> LoadRecallCandidatesAsync(DateTimeOffset now, int historyHours, int staleHours, int archiveRecallDays, CancellationToken cancellationToken);
 
+    Task MarkStaleEventsAsync(DateTimeOffset now, int staleHours, CancellationToken cancellationToken);
+
     Task<EventAggregate?> GetEventAsync(string eventId, CancellationToken cancellationToken);
 
     Task UpsertEventAsync(EventAggregate eventAggregate, CancellationToken cancellationToken);
