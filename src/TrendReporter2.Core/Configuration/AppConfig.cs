@@ -89,10 +89,10 @@ public sealed class LlmConfig
 
     public LlmEndpointConfig Judge { get; init; } = new();
 
-    public WriterLlmConfig Writer { get; init; } = new();
+    public LlmEndpointConfig Writer { get; init; } = new();
 }
 
-public class LlmEndpointConfig
+public sealed class LlmEndpointConfig
 {
     public string BaseUrl { get; init; } = string.Empty;
 
@@ -101,11 +101,17 @@ public class LlmEndpointConfig
     public string Model { get; init; } = string.Empty;
 
     public int MaxTokens { get; init; } = 2048;
+
+    public LLmPricingConfig Pricing { get; init; } = new();
 }
 
-public sealed class WriterLlmConfig : LlmEndpointConfig
+public sealed class LLmPricingConfig
 {
-    public string Mode { get; init; } = "local";
+    public float CacheRead { get; init; } = 0;
+
+    public float Input { get; init; } = 0;
+
+    public float Output { get; init; } = 0;
 }
 
 public sealed class EnrichmentConfig

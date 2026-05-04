@@ -178,14 +178,14 @@ public sealed class OpenAiClusterLlmClient : IClusterLlmClient
                 Math.Clamp(confidence, 0, 1),
                 parsed.Value<string>("reason"));
             _logger.LogInformation(
-                "聚类 LLM 解析结果，内容条目编号={ContentItemId}，耗时毫秒={ElapsedMs}，决策={Decision}，事件编号={EventId}，事件标题={EventTitle}，置信度={Confidence}，原因={Reason}",
-                request.Item.Id,
-                elapsedMs,
+                "聚类 LLM 解析结果，决策={Decision}，事件标题={EventTitle}，置信度={Confidence}，原因={Reason}，内容条目编号={ContentItemId}，耗时毫秒={ElapsedMs}，事件编号={EventId}",
                 result.Decision,
-                result.EventId,
                 result.CanonicalTitle,
                 result.Confidence,
-                Truncate(NormalizeSnippet(result.Reason), 300));
+                Truncate(NormalizeSnippet(result.Reason), 300),
+                request.Item.Id,
+                elapsedMs,
+                result.EventId);
             return result;
         }
         catch (JsonException ex)

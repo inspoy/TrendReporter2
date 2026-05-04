@@ -473,17 +473,29 @@ llm:
     apiKey: ""
     model: ""
     maxTokens: 2048
+    pricing:
+      cacheRead: 0
+      input: 0
+      output: 0
   judge:
     baseUrl: ""
     apiKey: ""
     model: ""
     maxTokens: 2048
+    pricing:
+      cacheRead: 0
+      input: 0
+      output: 0
   writer:
     mode: "local"
     baseUrl: "http://127.0.0.1:11434/v1"
     apiKey: ""
     model: ""
     maxTokens: 1024
+    pricing:
+      cacheRead: 0
+      input: 0
+      output: 0
 
 tavily:
   apiKey: ""
@@ -501,6 +513,7 @@ filters:
 说明：
 
 - `llm` 建议拆分为 `cluster`、`judge` 和本地 `writer`
+- `llm.*.pricing` 为可选成本配置，`cacheRead`、`input`、`output` 均按每百万 Token 计价，默认 `0`，必须为有限且非负的数字
 - `filters.blacklistKeywords` 用于推送降噪
 - `mergeThreshold` 与 `staleMergeThreshold` 用于控制在线归并的保守程度
 

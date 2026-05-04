@@ -218,17 +218,29 @@ llm:
     apiKey: ""
     model: ""
     maxTokens: 2048
+    pricing:
+      cacheRead: 0
+      input: 0
+      output: 0
   judge:
     baseUrl: ""
     apiKey: ""
     model: ""
     maxTokens: 2048
+    pricing:
+      cacheRead: 0
+      input: 0
+      output: 0
   writer:
     mode: "local"
     baseUrl: "http://127.0.0.1:11434/v1"
     apiKey: ""
     model: ""
     maxTokens: 1024
+    pricing:
+      cacheRead: 0
+      input: 0
+      output: 0
 
 tavily:
   apiKey: ""
@@ -277,6 +289,8 @@ system:
   首轮召回分过低时，才允许触发 Tavily
 - `llm.writer`
   本地小模型配置，用于简单摘要与进程润色
+- `llm.*.pricing`
+  可选成本配置，`cacheRead`、`input`、`output` 分别表示每百万 Token 的缓存读取、输入和输出价格；默认 `0`，必须是有限且非负的数字
 - `system.timeZone`
   统一抓取与摘要调度时区
 

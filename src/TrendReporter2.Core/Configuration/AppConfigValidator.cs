@@ -40,6 +40,10 @@ public static class AppConfigValidator
         Require(IsRatio(config.Enrichment.RecallWeakScoreThreshold), "enrichment.recallWeakScoreThreshold 必须在 0 到 1 之间。");
         Require(config.Enrichment.RetryCooldownHours >= 0, "enrichment.retryCooldownHours 不能为负数。");
 
+        ValidateLlmPricing("llm.cluster.pricing", config.Llm.Cluster.Pricing);
+        ValidateLlmPricing("llm.judge.pricing", config.Llm.Judge.Pricing);
+        ValidateLlmPricing("llm.writer.pricing", config.Llm.Writer.Pricing);
+
         Require(config.System.MaxParallelFetch > 0, "system.maxParallelFetch 必须大于 0。");
         Require(config.System.MaxParallelEnrichment > 0, "system.maxParallelEnrichment 必须大于 0。");
         Require(config.System.MaxParallelLlm > 0, "system.maxParallelLlm 必须大于 0。");
@@ -69,7 +73,16 @@ public static class AppConfigValidator
                 errors.Add(message);
             }
         }
+
+        void ValidateLlmPricing(string path, LLmPricingConfig pricing)
+        {
+            Require(IsNonNegativeFinite(pricing.CacheRead), $"{path}.cacheRead 必须是有限且非负的数字。");
+            Require(IsNonNegativeFinite(pricing.Input), $"{path}.input 必须是有限且非负的数字。");
+            Require(IsNonNegativeFinite(pricing.Output), $"{path}.output 必须是有限且非负的数字。");
+        }
     }
 
     private static bool IsRatio(double value) => value is >= 0 and <= 1;
+
+    private static bool IsNonNegativeFinite(float value) => float.IsFinite(value) && value >= 0;
 }

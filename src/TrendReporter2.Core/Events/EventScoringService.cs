@@ -303,6 +303,11 @@ public sealed class EventScoringService : IEventScoringService
 
         if (eventAggregate.PushCount == 0 || eventAggregate.LastPushedAt is null)
         {
+            if (score.UniqueSourceCount < _config.Analysis.Event.SourceCount)
+            {
+                return false;
+            }
+
             score.TriggerReasons.Add(TriggerReasons.FirstPush);
             return true;
         }
@@ -412,7 +417,7 @@ public sealed class EventScoringService : IEventScoringService
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .Take(3)
             .ToList();
-        var message = $"[{stage}] {summary} 为什么现在: {FormatReason(reason)}。来源: {string.Join(", ", sources)}。评分 {score.TotalScore:F1}，热度 {score.HeatValue:F2}。";
+        var message = $"[{stage}] {summary} WhyNow={FormatReason(reason)},Source={string.Join(", ", sources)},Score={score.TotalScore:F1},Heat={score.HeatValue:F2}。";
         return new PushMessage
         {
             Title = input.Event.CanonicalTitle,

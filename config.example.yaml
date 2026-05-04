@@ -60,6 +60,10 @@ llm:
     apiKey: "sk-xxx"
     model: "deepseek-chat"
     maxTokens: 4096
+    pricing: # 可选，每百万Token的价格，用于统计和控制成本
+      cacheRead: 0
+      input: 0
+      output: 0
   judge: # 重要性修正与标签判断
     baseUrl: ""
     apiKey: "sk-xxx"
