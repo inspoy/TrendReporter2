@@ -45,6 +45,7 @@ public sealed class EventScoringService : IEventScoringService
             return new EventScoringRunResult(0, 0, 0);
         }
 
+        _logger.LogInformation("开始执行事件评分, inputs=" + inputs.Count);
         var eventIds = inputs.Select(input => input.Event.Id).Distinct(StringComparer.Ordinal).ToList();
         var trendSince = now.AddHours(-Math.Max(1, _config.Analysis.Event.TrendWindowHours));
         var recentSnapshots = await _repository.LoadRecentScoreSnapshotsAsync(eventIds, trendSince, cancellationToken);
@@ -82,21 +83,29 @@ public sealed class EventScoringService : IEventScoringService
                 ApplyProgress(input.Event, progress, judge, now);
                 score.CurrentStage = input.Event.CurrentStage;
 
-                if (eligible && ShouldPush(input.Event, score))
+                if (eligible)
                 {
-                    var message = BuildPushMessage(runId, input, score);
-                    var pushAttempt = await PushAndLogAsync(message, now, cancellationToken);
-                    if (pushAttempt.Recorded)
+                    var shouldPush = ShouldPush(input.Event, score, out var dontPushReason);
+                    if (shouldPush)
                     {
-                        input.Event.LastPushedAt = now;
-                        input.Event.PushCount++;
-                        input.Event.LastPushScore = score.TotalScore;
-                        input.Event.LastPushRankScore = score.RankScore;
-                        input.Event.LastPushSourceCount = score.UniqueSourceCount;
-                        if (pushAttempt.Success)
+                        var message = BuildPushMessage(runId, input, score);
+                        var pushAttempt = await PushAndLogAsync(message, now, cancellationToken);
+                        if (pushAttempt.Recorded)
                         {
-                            Interlocked.Increment(ref pushedCount);
+                            input.Event.LastPushedAt = now;
+                            input.Event.PushCount++;
+                            input.Event.LastPushScore = score.TotalScore;
+                            input.Event.LastPushRankScore = score.RankScore;
+                            input.Event.LastPushSourceCount = score.UniqueSourceCount;
+                            if (pushAttempt.Success)
+                            {
+                                Interlocked.Increment(ref pushedCount);
+                            }
                         }
+                    }
+                    else
+                    {
+                        _logger.LogInformation("合格事件未推送，原因：" + dontPushReason);
                     }
                 }
 
@@ -294,10 +303,12 @@ public sealed class EventScoringService : IEventScoringService
         eventAggregate.ProgressUpdatedAt = now;
     }
 
-    private bool ShouldPush(EventAggregate eventAggregate, EventScore score)
+    private bool ShouldPush(EventAggregate eventAggregate, EventScore score, out string dontPushReason)
     {
+        dontPushReason = string.Empty;
         if (eventAggregate.IsBlacklisted)
         {
+            dontPushReason = "事件在黑名单中";
             return false;
         }
 
@@ -305,6 +316,7 @@ public sealed class EventScoringService : IEventScoringService
         {
             if (score.UniqueSourceCount < _config.Analysis.Event.SourceCount)
             {
+                dontPushReason = $"信源数量不足({score.UniqueSourceCount})";
                 return false;
             }
 
@@ -330,6 +342,7 @@ public sealed class EventScoringService : IEventScoringService
             return true;
         }
 
+        dontPushReason = "非首次推送的事件，评分和排名增量均没有超过阈值";
         return false;
     }
 

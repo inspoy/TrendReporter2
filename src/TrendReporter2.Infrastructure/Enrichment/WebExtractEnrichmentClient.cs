@@ -57,27 +57,27 @@ public sealed class WebExtractEnrichmentClient : IEnrichmentClient
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
             _logger.LogWarning(
-                "网页提取超时，内容条目编号={ContentItemId}，耗时毫秒={ElapsedMs}",
+                "网页提取超时，内容条目编号={ContentItemId}，耗时{ElapsedSec:F1}s",
                 item.Id,
-                stopwatch.ElapsedMilliseconds);
+                stopwatch.Elapsed.Seconds);
             return null;
         }
         catch (HttpRequestException ex)
         {
             _logger.LogWarning(
                 ex,
-                "网页提取 HTTP 请求失败，内容条目编号={ContentItemId}，耗时毫秒={ElapsedMs}",
+                "网页提取 HTTP 请求失败，内容条目编号={ContentItemId}，耗时{ElapsedSec:F1}s",
                 item.Id,
-                stopwatch.ElapsedMilliseconds);
+                stopwatch.Elapsed.Seconds);
             return null;
         }
         catch (UriFormatException ex)
         {
             _logger.LogWarning(
                 ex,
-                "网页提取 URL 无效，内容条目编号={ContentItemId}，耗时毫秒={ElapsedMs}",
+                "网页提取 URL 无效，内容条目编号={ContentItemId}，耗时{ElapsedSec:F1}s",
                 item.Id,
-                stopwatch.ElapsedMilliseconds);
+                stopwatch.Elapsed.Seconds);
             return null;
         }
 
@@ -85,9 +85,9 @@ public sealed class WebExtractEnrichmentClient : IEnrichmentClient
         if (!result.Success)
         {
             _logger.LogWarning(
-                "网页提取返回失败，内容条目编号={ContentItemId}，耗时毫秒={ElapsedMs}，消息={Message}，标题={Title}，摘要={Summary}",
+                "网页提取返回失败，内容条目编号={ContentItemId}，耗时{ElapsedSec:F1}s，消息={Message}，标题={Title}，摘要={Summary}",
                 item.Id,
-                stopwatch.ElapsedMilliseconds,
+                stopwatch.Elapsed.Seconds,
                 Truncate(NormalizeSnippet(result.Message), 300),
                 Truncate(NormalizeSnippet(result.Title), 160),
                 Truncate(NormalizeSnippet(result.Summary), 300));
@@ -98,18 +98,18 @@ public sealed class WebExtractEnrichmentClient : IEnrichmentClient
         if (string.IsNullOrWhiteSpace(summary))
         {
             _logger.LogWarning(
-                "网页提取返回无可用内容，内容条目编号={ContentItemId}，耗时毫秒={ElapsedMs}，消息={Message}，标题={Title}",
+                "网页提取返回无可用内容，内容条目编号={ContentItemId}，耗时{ElapsedSec:F1}s，消息={Message}，标题={Title}",
                 item.Id,
-                stopwatch.ElapsedMilliseconds,
+                stopwatch.Elapsed.Seconds,
                 Truncate(NormalizeSnippet(result.Message), 300),
                 Truncate(NormalizeSnippet(result.Title), 160));
             return null;
         }
 
         _logger.LogInformation(
-            "网页提取成功，内容条目编号={ContentItemId}，耗时毫秒={ElapsedMs}，标题={Title}，摘要={Summary}",
+            "网页提取成功，内容条目编号={ContentItemId}，耗时{ElapsedSec:F1}s，标题={Title}，摘要={Summary}",
             item.Id,
-            stopwatch.ElapsedMilliseconds,
+            stopwatch.Elapsed.Seconds,
             Truncate(NormalizeSnippet(result.Title ?? item.Title), 160),
             Truncate(summary, 300));
 

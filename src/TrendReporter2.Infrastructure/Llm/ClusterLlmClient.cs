@@ -52,10 +52,10 @@ public sealed class ClusterLlmClient : IClusterLlmClient
             if (!response.IsSuccessStatusCode)
             {
                 _logger.LogWarning(
-                    "聚类 LLM 请求失败，内容条目编号={ContentItemId}，HTTP状态={StatusCode}，耗时毫秒={ElapsedMs}，响应体={Body}",
+                    "聚类 LLM 请求失败，内容条目编号={ContentItemId}，HTTP状态={StatusCode}，耗时{ElapsedSec:F1}s，响应体={Body}",
                     request.Item.Id,
                     (int)response.StatusCode,
-                    stopwatch.ElapsedMilliseconds,
+                    stopwatch.Elapsed.Seconds,
                     Truncate(NormalizeSnippet(responseBody), 500));
                 return ClusterMatchResult.CreateNew("聚类 LLM HTTP 请求失败");
             }
@@ -70,9 +70,9 @@ public sealed class ClusterLlmClient : IClusterLlmClient
         {
             _logger.LogWarning(
                 ex,
-                "聚类 LLM 请求失败，内容条目编号={ContentItemId}，耗时毫秒={ElapsedMs}",
+                "聚类 LLM 请求失败，内容条目编号={ContentItemId}，耗时{ElapsedSec:F1}s",
                 request.Item.Id,
-                stopwatch.ElapsedMilliseconds);
+                stopwatch.Elapsed.Seconds);
             return ClusterMatchResult.CreateNew("聚类 LLM 请求异常");
         }
     }
@@ -129,9 +129,9 @@ public sealed class ClusterLlmClient : IClusterLlmClient
             if (string.IsNullOrWhiteSpace(content))
             {
                 _logger.LogWarning(
-                    "聚类 LLM 返回空内容，内容条目编号={ContentItemId}，耗时毫秒={ElapsedMs}，响应体={Body}",
+                    "聚类 LLM 返回空内容，内容条目编号={ContentItemId}，耗时{ElapsedSec:F1}s，响应体={Body}",
                     request.Item.Id,
-                    elapsedMs,
+                    elapsedMs / 1000f,
                     Truncate(NormalizeSnippet(responseBody), 500));
                 return ClusterMatchResult.CreateNew("聚类 LLM 返回空内容");
             }
@@ -151,9 +151,9 @@ public sealed class ClusterLlmClient : IClusterLlmClient
             if (string.IsNullOrWhiteSpace(decision) || !validDecisions.Contains(decision, StringComparer.OrdinalIgnoreCase))
             {
                 _logger.LogWarning(
-                    "聚类 LLM 返回无效决策，内容条目编号={ContentItemId}，耗时毫秒={ElapsedMs}，内容={Content}",
+                    "聚类 LLM 返回无效决策，内容条目编号={ContentItemId}，耗时{ElapsedSec:F1}s，内容={Content}",
                     request.Item.Id,
-                    elapsedMs,
+                    elapsedMs / 1000f,
                     Truncate(NormalizeSnippet(content), 500));
                 return ClusterMatchResult.CreateNew("聚类 LLM 返回无效决策");
             }
@@ -162,9 +162,9 @@ public sealed class ClusterLlmClient : IClusterLlmClient
                 (string.IsNullOrWhiteSpace(eventId) || request.Candidates.All(candidate => candidate.Event.Id != eventId)))
             {
                 _logger.LogWarning(
-                    "聚类 LLM 返回未知事件编号，内容条目编号={ContentItemId}，耗时毫秒={ElapsedMs}，事件编号={EventId}，内容={Content}",
+                    "聚类 LLM 返回未知事件编号，内容条目编号={ContentItemId}，耗时{ElapsedSec:F1}s，事件编号={EventId}，内容={Content}",
                     request.Item.Id,
-                    elapsedMs,
+                    elapsedMs / 1000f,
                     eventId,
                     Truncate(NormalizeSnippet(content), 500));
                 return ClusterMatchResult.CreateNew("聚类 LLM 返回未知事件编号");
@@ -178,13 +178,13 @@ public sealed class ClusterLlmClient : IClusterLlmClient
                 Math.Clamp(confidence, 0, 1),
                 parsed.Value<string>("reason"));
             _logger.LogInformation(
-                "聚类 LLM 解析结果，决策={Decision}，事件标题={EventTitle}，置信度={Confidence}，原因={Reason}，内容条目编号={ContentItemId}，耗时毫秒={ElapsedMs}，事件编号={EventId}",
+                "聚类 LLM 解析结果，决策={Decision}，事件标题={EventTitle}，置信度={Confidence}，原因={Reason}，内容条目编号={ContentItemId}，耗时{ElapsedSec:F1}s，事件编号={EventId}",
                 result.Decision,
                 result.CanonicalTitle,
                 result.Confidence,
                 Truncate(NormalizeSnippet(result.Reason), 300),
                 request.Item.Id,
-                elapsedMs,
+                elapsedMs / 1000f,
                 result.EventId);
             return result;
         }
@@ -192,9 +192,9 @@ public sealed class ClusterLlmClient : IClusterLlmClient
         {
             _logger.LogWarning(
                 ex,
-                "聚类 LLM 返回无效 JSON，内容条目编号={ContentItemId}，耗时毫秒={ElapsedMs}，响应体={Body}",
+                "聚类 LLM 返回无效 JSON，内容条目编号={ContentItemId}，耗时{ElapsedSec:F1}s，响应体={Body}",
                 request.Item.Id,
-                elapsedMs,
+                elapsedMs / 1000f,
                 Truncate(NormalizeSnippet(responseBody), 500));
             return ClusterMatchResult.CreateNew("聚类 LLM 返回无效 JSON");
         }

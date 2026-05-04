@@ -52,10 +52,10 @@ public sealed class JudgeLlmClient : IJudgeLlmClient
             if (!response.IsSuccessStatusCode)
             {
                 _logger.LogWarning(
-                    "评判 LLM 请求失败，事件编号={EventId}，HTTP状态={StatusCode}，耗时毫秒={ElapsedMs}，响应体={Body}",
+                    "评判 LLM 请求失败，事件编号={EventId}，HTTP状态={StatusCode}，耗时{ElapsedSec:F1}s，响应体={Body}",
                     request.Event.Id,
                     (int)response.StatusCode,
-                    stopwatch.ElapsedMilliseconds,
+                    stopwatch.Elapsed.Seconds,
                     Truncate(NormalizeSnippet(responseBody), 500));
                 return JudgeResult.Neutral("评判 LLM HTTP 请求失败");
             }
@@ -70,9 +70,9 @@ public sealed class JudgeLlmClient : IJudgeLlmClient
         {
             _logger.LogWarning(
                 ex,
-                "评判 LLM 请求失败，事件编号={EventId}，耗时毫秒={ElapsedMs}",
+                "评判 LLM 请求失败，事件编号={EventId}，耗时{ElapsedSec:F1}s",
                 request.Event.Id,
-                stopwatch.ElapsedMilliseconds);
+                stopwatch.Elapsed.Seconds);
             return JudgeResult.Neutral("评判 LLM 请求异常");
         }
     }
@@ -131,9 +131,9 @@ public sealed class JudgeLlmClient : IJudgeLlmClient
             if (string.IsNullOrWhiteSpace(content))
             {
                 _logger.LogWarning(
-                    "评判 LLM 返回空内容，事件编号={EventId}，耗时毫秒={ElapsedMs}，响应体={Body}",
+                    "评判 LLM 返回空内容，事件编号={EventId}，耗时{ElapsedSec:F1}s，响应体={Body}",
                     eventId,
-                    elapsedMs,
+                    elapsedMs / 1000f,
                     Truncate(NormalizeSnippet(responseBody), 500));
                 return JudgeResult.Neutral("评判 LLM 返回空内容");
             }
@@ -151,9 +151,9 @@ public sealed class JudgeLlmClient : IJudgeLlmClient
                 NormalizeStage(parsed.Value<string>("stage")),
                 parsed.Value<string>("progressSummary"));
             _logger.LogInformation(
-                "评判 LLM 解析结果，事件编号={EventId}，耗时毫秒={ElapsedMs}，重要性={Importance}，加权分数={BoostScore}，阶段={Stage}，原因={Reason}",
+                "评判 LLM 解析结果，事件编号={EventId}，耗时{ElapsedSec:F1}s，重要性={Importance}，加权分数={BoostScore}，阶段={Stage}，原因={Reason}",
                 eventId,
-                elapsedMs,
+                elapsedMs / 1000,
                 result.Importance,
                 result.BoostScore,
                 result.Stage,
@@ -164,9 +164,9 @@ public sealed class JudgeLlmClient : IJudgeLlmClient
         {
             _logger.LogWarning(
                 ex,
-                "评判 LLM 返回无效 JSON，事件编号={EventId}，耗时毫秒={ElapsedMs}，响应体={Body}",
+                "评判 LLM 返回无效 JSON，事件编号={EventId}，耗时{Elapsed:F1}s，响应体={Body}",
                 eventId,
-                elapsedMs,
+                elapsedMs / 1000f,
                 Truncate(NormalizeSnippet(responseBody), 500));
             return JudgeResult.Neutral("评判 LLM 返回无效 JSON");
         }
