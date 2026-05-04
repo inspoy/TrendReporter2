@@ -17,20 +17,20 @@ public sealed class EventScoringService : IEventScoringService
     private readonly IEventRepository _repository;
     private readonly IJudgeLlmClient _judgeLlmClient;
     private readonly IEnumerable<IPusher> _pushers;
-    private readonly ILogger<EventScoringService> _logger;
+    private readonly ILogger _logger;
 
     public EventScoringService(
         AppConfig config,
         IEventRepository repository,
         IJudgeLlmClient judgeLlmClient,
         IEnumerable<IPusher> pushers,
-        ILogger<EventScoringService> logger)
+        ILoggerFactory loggerFactory)
     {
         _config = config;
         _repository = repository;
         _judgeLlmClient = judgeLlmClient;
         _pushers = pushers;
-        _logger = logger;
+        _logger = loggerFactory.CreateLogger("EventScoring");
     }
 
     public async Task<EventScoringRunResult> ScoreAndPushRunAsync(

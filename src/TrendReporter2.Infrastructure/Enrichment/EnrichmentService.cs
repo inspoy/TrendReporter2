@@ -13,18 +13,18 @@ public sealed class EnrichmentService : IEnrichmentService
     private readonly AppConfig _config;
     private readonly LiteDbConnectionFactory _connectionFactory;
     private readonly IEnrichmentClient _enrichmentClient;
-    private readonly ILogger<EnrichmentService> _logger;
+    private readonly ILogger _logger;
 
     public EnrichmentService(
         AppConfig config,
         LiteDbConnectionFactory connectionFactory,
         IEnrichmentClient enrichmentClient,
-        ILogger<EnrichmentService> logger)
+        ILoggerFactory loggerFactory)
     {
         _config = config;
         _connectionFactory = connectionFactory;
         _enrichmentClient = enrichmentClient;
-        _logger = logger;
+        _logger = loggerFactory.CreateLogger("Enrichment");
     }
 
     public async Task<EnrichmentRunResult> EnrichRunAsync(

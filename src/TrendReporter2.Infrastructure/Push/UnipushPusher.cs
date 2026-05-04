@@ -10,13 +10,13 @@ public sealed class UnipushPusher : IPusher
 {
     private readonly HttpClient _httpClient;
     private readonly AppConfig _config;
-    private readonly ILogger<UnipushPusher> _logger;
+    private readonly ILogger _logger;
 
-    public UnipushPusher(HttpClient httpClient, AppConfig config, ILogger<UnipushPusher> logger)
+    public UnipushPusher(HttpClient httpClient, AppConfig config, ILoggerFactory loggerFactory)
     {
         _httpClient = httpClient;
         _config = config;
-        _logger = logger;
+        _logger = loggerFactory.CreateLogger("Unipush");
     }
 
     public string Type => "unipush";

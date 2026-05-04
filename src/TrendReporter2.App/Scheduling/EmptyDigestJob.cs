@@ -5,11 +5,11 @@ namespace TrendReporter2.App.Scheduling;
 
 public sealed class EmptyDigestJob : IDigestJob
 {
-    private readonly ILogger<EmptyDigestJob> _logger;
+    private readonly ILogger _logger;
 
-    public EmptyDigestJob(ILogger<EmptyDigestJob> logger)
+    public EmptyDigestJob(ILoggerFactory loggerFactory)
     {
-        _logger = logger;
+        _logger = loggerFactory.CreateLogger("EmptyDigestJob");
     }
 
     public Task RunAsync(CancellationToken cancellationToken)

@@ -9,17 +9,17 @@ using TrendReporter2.Core.Events;
 
 namespace TrendReporter2.Infrastructure.Llm;
 
-public sealed class OpenAiJudgeLlmClient : IJudgeLlmClient
+public sealed class JudgeLlmClient : IJudgeLlmClient
 {
     private readonly HttpClient _httpClient;
     private readonly AppConfig _config;
-    private readonly ILogger<OpenAiJudgeLlmClient> _logger;
+    private readonly ILogger _logger;
 
-    public OpenAiJudgeLlmClient(HttpClient httpClient, AppConfig config, ILogger<OpenAiJudgeLlmClient> logger)
+    public JudgeLlmClient(HttpClient httpClient, AppConfig config, ILoggerFactory loggerFactory)
     {
         _httpClient = httpClient;
         _config = config;
-        _logger = logger;
+        _logger = loggerFactory.CreateLogger("LLM.Judge");
     }
 
     public bool IsConfigured =>

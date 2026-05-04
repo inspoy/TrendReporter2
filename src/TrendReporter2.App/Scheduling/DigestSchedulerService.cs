@@ -9,17 +9,17 @@ public sealed class DigestSchedulerService : BackgroundService
 {
     private readonly AppConfig _config;
     private readonly IDigestJob _digestJob;
-    private readonly ILogger<DigestSchedulerService> _logger;
+    private readonly ILogger _logger;
     private readonly TimeZoneInfo _timeZone;
 
     public DigestSchedulerService(
         AppConfig config,
         IDigestJob digestJob,
-        ILogger<DigestSchedulerService> logger)
+        ILoggerFactory loggerFactory)
     {
         _config = config;
         _digestJob = digestJob;
-        _logger = logger;
+        _logger = loggerFactory.CreateLogger("DigestScheduler");
         _timeZone = TimeZoneResolver.Find(config.System.TimeZone);
     }
 

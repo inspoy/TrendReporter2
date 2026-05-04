@@ -9,17 +9,17 @@ public sealed class FetchSchedulerService : BackgroundService
 {
     private readonly AppConfig _config;
     private readonly IFetchJob _fetchJob;
-    private readonly ILogger<FetchSchedulerService> _logger;
+    private readonly ILogger _logger;
     private readonly SemaphoreSlim _runLock = new(1, 1);
 
     public FetchSchedulerService(
         AppConfig config,
         IFetchJob fetchJob,
-        ILogger<FetchSchedulerService> logger)
+        ILoggerFactory loggerFactory)
     {
         _config = config;
         _fetchJob = fetchJob;
-        _logger = logger;
+        _logger = loggerFactory.CreateLogger("FetchScheduler");
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)

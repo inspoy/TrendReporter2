@@ -18,7 +18,7 @@ public sealed class FetchJob : IFetchJob
     private readonly IEventMatcher _eventMatcher;
     private readonly IEventScoringService _eventScoringService;
     private readonly IFetchRunRepository _fetchRunRepository;
-    private readonly ILogger<FetchJob> _logger;
+    private readonly ILogger _logger;
 
     public FetchJob(
         AppConfig config,
@@ -28,7 +28,7 @@ public sealed class FetchJob : IFetchJob
         IEventMatcher eventMatcher,
         IEventScoringService eventScoringService,
         IFetchRunRepository fetchRunRepository,
-        ILogger<FetchJob> logger)
+        ILoggerFactory loggerFactory)
     {
         _config = config;
         _newsSourceClient = newsSourceClient;
@@ -37,7 +37,7 @@ public sealed class FetchJob : IFetchJob
         _eventMatcher = eventMatcher;
         _eventScoringService = eventScoringService;
         _fetchRunRepository = fetchRunRepository;
-        _logger = logger;
+        _logger = loggerFactory.CreateLogger("FetchJob");
     }
 
     public async Task RunAsync(CancellationToken cancellationToken)

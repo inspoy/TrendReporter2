@@ -13,16 +13,16 @@ public sealed class ContentIngestService : IContentIngestService
 {
     private readonly LiteDbConnectionFactory _connectionFactory;
     private readonly IEnrichmentPolicy _enrichmentPolicy;
-    private readonly ILogger<ContentIngestService> _logger;
+    private readonly ILogger _logger;
 
     public ContentIngestService(
         LiteDbConnectionFactory connectionFactory,
         IEnrichmentPolicy enrichmentPolicy,
-        ILogger<ContentIngestService> logger)
+        ILoggerFactory loggerFactory)
     {
         _connectionFactory = connectionFactory;
         _enrichmentPolicy = enrichmentPolicy;
-        _logger = logger;
+        _logger = loggerFactory.CreateLogger("ContentIngest");
     }
 
     public Task<ContentIngestResult> IngestAsync(

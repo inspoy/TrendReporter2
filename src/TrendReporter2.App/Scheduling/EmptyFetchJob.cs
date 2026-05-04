@@ -5,11 +5,11 @@ namespace TrendReporter2.App.Scheduling;
 
 public sealed class EmptyFetchJob : IFetchJob
 {
-    private readonly ILogger<EmptyFetchJob> _logger;
+    private readonly ILogger _logger;
 
-    public EmptyFetchJob(ILogger<EmptyFetchJob> logger)
+    public EmptyFetchJob(ILoggerFactory loggerFactory)
     {
-        _logger = logger;
+        _logger = loggerFactory.CreateLogger("EmptyFetchJob");
     }
 
     public Task RunAsync(CancellationToken cancellationToken)

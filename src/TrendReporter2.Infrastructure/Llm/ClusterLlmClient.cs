@@ -9,17 +9,17 @@ using TrendReporter2.Core.Events;
 
 namespace TrendReporter2.Infrastructure.Llm;
 
-public sealed class OpenAiClusterLlmClient : IClusterLlmClient
+public sealed class ClusterLlmClient : IClusterLlmClient
 {
     private readonly HttpClient _httpClient;
     private readonly AppConfig _config;
-    private readonly ILogger<OpenAiClusterLlmClient> _logger;
+    private readonly ILogger _logger;
 
-    public OpenAiClusterLlmClient(HttpClient httpClient, AppConfig config, ILogger<OpenAiClusterLlmClient> logger)
+    public ClusterLlmClient(HttpClient httpClient, AppConfig config, ILoggerFactory loggerFactory)
     {
         _httpClient = httpClient;
         _config = config;
-        _logger = logger;
+        _logger = loggerFactory.CreateLogger("LLM.Cluster");
     }
 
     public bool IsConfigured =>

@@ -18,13 +18,13 @@ public sealed class NewsNowClient : INewsSourceClient
 
     private readonly HttpClient _httpClient;
     private readonly AppConfig _config;
-    private readonly ILogger<NewsNowClient> _logger;
+    private readonly ILogger _logger;
 
-    public NewsNowClient(HttpClient httpClient, AppConfig config, ILogger<NewsNowClient> logger)
+    public NewsNowClient(HttpClient httpClient, AppConfig config, ILoggerFactory loggerFactory)
     {
         _httpClient = httpClient;
         _config = config;
-        _logger = logger;
+        _logger = loggerFactory.CreateLogger("NewsNow");
     }
 
     public async Task<IReadOnlyList<NewsItem>> FetchAsync(

@@ -9,16 +9,16 @@ public sealed class LiteDbInitializer : ITrendDatabaseInitializer
 {
     private readonly AppConfig _config;
     private readonly LiteDbConnectionFactory _connectionFactory;
-    private readonly ILogger<LiteDbInitializer> _logger;
+    private readonly ILogger _logger;
 
     public LiteDbInitializer(
         AppConfig config,
         LiteDbConnectionFactory connectionFactory,
-        ILogger<LiteDbInitializer> logger)
+        ILoggerFactory loggerFactory)
     {
         _config = config;
         _connectionFactory = connectionFactory;
-        _logger = logger;
+        _logger = loggerFactory.CreateLogger("LiteDB.Init");
     }
 
     public void Initialize()

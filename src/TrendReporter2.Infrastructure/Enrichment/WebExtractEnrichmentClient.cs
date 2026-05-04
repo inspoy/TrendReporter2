@@ -17,16 +17,16 @@ public sealed class WebExtractEnrichmentClient : IEnrichmentClient
 
     private readonly HttpClient _httpClient;
     private readonly AppConfig _config;
-    private readonly ILogger<WebExtractEnrichmentClient> _logger;
+    private readonly ILogger _logger;
 
     public WebExtractEnrichmentClient(
         HttpClient httpClient,
         AppConfig config,
-        ILogger<WebExtractEnrichmentClient> logger)
+        ILoggerFactory loggerFactory)
     {
         _httpClient = httpClient;
         _config = config;
-        _logger = logger;
+        _logger = loggerFactory.CreateLogger("WebExtract");
     }
 
     public async Task<EnrichmentResult?> EnrichAsync(ContentItem item, CancellationToken cancellationToken)
