@@ -69,7 +69,7 @@ public sealed class EventScoringService : IEventScoringService
 
                 var judge = eligibleBeforeJudge || IsNearEligibility(score)
                     ? await _judgeLlmClient.JudgeAsync(new JudgeRequest(input.Event, score, input.Evidence, score.TriggerReasons), cancellationToken)
-                    : JudgeResult.Neutral("event did not reach judge threshold");
+                    : JudgeResult.Neutral("事件未达到评判阈值");
 
                 ApplyJudge(score, judge);
                 var eligible = IsEligible(score, input.Event, runStartedAt, now);
@@ -227,7 +227,7 @@ public sealed class EventScoringService : IEventScoringService
             .Select(evidence => evidence.ContentItem.Title)
             .FirstOrDefault(title => !string.IsNullOrWhiteSpace(title)) ?? input.Event.CanonicalTitle;
         var summary = string.IsNullOrWhiteSpace(judge.ProgressSummary)
-            ? $"First seen at {input.Event.FirstSeenAt:yyyy-MM-dd HH:mm}, now covered by {score.UniqueSourceCount} source(s) including {string.Join(", ", sources)}; latest development: {latestTitle}."
+            ? $"首次发现于 {input.Event.FirstSeenAt:yyyy-MM-dd HH:mm}，当前由 {score.UniqueSourceCount} 个来源覆盖，包括 {string.Join(", ", sources)}；最新进展: {latestTitle}。"
             : judge.ProgressSummary.Trim();
 
         var milestones = new List<EventMilestone>
@@ -236,9 +236,9 @@ public sealed class EventScoringService : IEventScoringService
             {
                 Time = input.Event.FirstSeenAt,
                 Kind = "first_seen",
-                Label = "First detected",
+                Label = "首次发现",
                 Source = sources.FirstOrDefault(),
-                Summary = $"Event entered monitoring as {input.Event.CanonicalTitle}."
+                Summary = $"事件以 {input.Event.CanonicalTitle} 进入监控。"
             }
         };
 
@@ -248,9 +248,9 @@ public sealed class EventScoringService : IEventScoringService
             {
                 Time = now,
                 Kind = "source_expansion",
-                Label = "Source coverage expanded",
+                Label = "来源覆盖扩展",
                 Source = sources.FirstOrDefault(),
-                Summary = $"Coverage reached {score.UniqueSourceCount} sources with average normalized rank {score.AvgNormalizedRank:F2}."
+                Summary = $"覆盖已扩展到 {score.UniqueSourceCount} 个来源，平均归一化排名 {score.AvgNormalizedRank:F2}。"
             });
         }
 
@@ -260,9 +260,9 @@ public sealed class EventScoringService : IEventScoringService
             {
                 Time = input.Event.LastActivatedAt,
                 Kind = "reactivation",
-                Label = "Follow-up detected",
+                Label = "发现后续进展",
                 Source = sources.FirstOrDefault(),
-                Summary = "A previously stale event became active again in this fetch run."
+                Summary = "一个之前已冷却的事件在本次抓取运行中重新活跃。"
             });
         }
 
@@ -272,9 +272,9 @@ public sealed class EventScoringService : IEventScoringService
             {
                 Time = now,
                 Kind = "heat_rising",
-                Label = "Heat rising",
+                Label = "热度上升",
                 Source = sources.FirstOrDefault(),
-                Summary = $"Heat reached {score.HeatValue:F2} and trend score is {score.TrendScore:F2}."
+                Summary = $"热度达到 {score.HeatValue:F2}，趋势分数为 {score.TrendScore:F2}。"
             });
         }
 
@@ -342,14 +342,14 @@ public sealed class EventScoringService : IEventScoringService
             Payload = BuildUnsentPayload(message),
             DedupKey = message.DedupKey,
             Success = false,
-            Error = "pending"
+            Error = "待处理"
         };
         var inserted = await _repository.InsertPushLogIfMissingAsync(pushLog, cancellationToken);
         if (!inserted)
         {
             _logger.LogInformation(
                 PushSkippedEventId,
-                "Skipped push insertion for eventId={EventId}. Reason={Reason}, Title={Title}, Content={Content}",
+                "跳过推送插入，事件编号={EventId}。原因={Reason}，标题={Title}，内容={Content}",
                 message.EventId,
                 message.Reason,
                 message.Title,
@@ -359,7 +359,7 @@ public sealed class EventScoringService : IEventScoringService
 
         _logger.LogInformation(
             PushAttemptEventId,
-            "Attempting push for eventId={EventId}. Reason={Reason}, Title={Title}, Content={Content}",
+            "尝试推送，事件编号={EventId}。原因={Reason}，标题={Title}，内容={Content}",
             message.EventId,
             message.Reason,
             message.Title,
@@ -367,7 +367,7 @@ public sealed class EventScoringService : IEventScoringService
 
         var pusher = _pushers.FirstOrDefault(pusher => pusher.IsConfigured);
         var result = pusher is null
-            ? PushResult.Skipped("no configured pusher", pushLog.Payload)
+            ? PushResult.Skipped("没有已配置的推送器", pushLog.Payload)
             : await pusher.PushAsync(message, cancellationToken);
         pushLog.Payload = result.Payload;
         pushLog.Success = result.Success;
@@ -378,7 +378,7 @@ public sealed class EventScoringService : IEventScoringService
         {
             _logger.LogInformation(
                 PushSucceededEventId,
-                "Push succeeded for eventId={EventId}. Reason={Reason}, Title={Title}, Content={Content}",
+                "推送成功，事件编号={EventId}。原因={Reason}，标题={Title}，内容={Content}",
                 message.EventId,
                 message.Reason,
                 message.Title,
@@ -388,7 +388,7 @@ public sealed class EventScoringService : IEventScoringService
         {
             _logger.LogWarning(
                 PushFailedEventId,
-                "Push failed or skipped for eventId={EventId}. Reason={Reason}, Title={Title}, Content={Content}, Error={Error}",
+                "推送失败或跳过，事件编号={EventId}。原因={Reason}，标题={Title}，内容={Content}，错误={Error}",
                 message.EventId,
                 message.Reason,
                 message.Title,
@@ -401,7 +401,7 @@ public sealed class EventScoringService : IEventScoringService
 
     private PushMessage BuildPushMessage(string runId, RunEventScoringInput input, EventScore score)
     {
-        var reason = score.TriggerReasons.LastOrDefault() ?? score.TriggerReasons.FirstOrDefault() ?? "eligible";
+        var reason = score.TriggerReasons.LastOrDefault() ?? score.TriggerReasons.FirstOrDefault() ?? "符合条件";
         var link = input.Evidence
             .Select(evidence => evidence.ContentItem.MobileUrl ?? evidence.ContentItem.Url)
             .FirstOrDefault(url => !string.IsNullOrWhiteSpace(url)) ?? string.Empty;
@@ -412,7 +412,7 @@ public sealed class EventScoringService : IEventScoringService
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .Take(3)
             .ToList();
-        var message = $"[{stage}] {summary} Why now: {FormatReason(reason)}. Sources: {string.Join(", ", sources)}. Score {score.TotalScore:F1}, heat {score.HeatValue:F2}.";
+        var message = $"[{stage}] {summary} 为什么现在: {FormatReason(reason)}。来源: {string.Join(", ", sources)}。评分 {score.TotalScore:F1}，热度 {score.HeatValue:F2}。";
         return new PushMessage
         {
             Title = input.Event.CanonicalTitle,
@@ -437,7 +437,7 @@ public sealed class EventScoringService : IEventScoringService
         }
 
         eventAggregate.IsBlacklisted = true;
-        eventAggregate.BlacklistReason = $"Matched blacklist keyword: {keyword}";
+        eventAggregate.BlacklistReason = $"匹配到黑名单关键词: {keyword}";
     }
 
     private bool HasRisingTrend(EventScore score, double trendHeat)

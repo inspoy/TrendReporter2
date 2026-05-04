@@ -26,7 +26,7 @@ public sealed class DigestSchedulerService : BackgroundService
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         _logger.LogInformation(
-            "Digest scheduler started. PushTimes={PushTimes}, TimeZone={TimeZone}.",
+            "摘要调度器已启动，推送时间={PushTimes}，时区={TimeZone}。",
             string.Join(",", _config.Analysis.Push.PushTime),
             _config.System.TimeZone);
 
@@ -39,7 +39,7 @@ public sealed class DigestSchedulerService : BackgroundService
 
             if (_config.Analysis.Push.PushTime.Contains(currentTime, StringComparer.Ordinal))
             {
-                _logger.LogInformation("Digest schedule hit at {LocalTime}.", currentTime);
+                _logger.LogInformation("摘要调度触发，本地时间={LocalTime}。", currentTime);
                 await _digestJob.RunAsync(stoppingToken);
             }
 

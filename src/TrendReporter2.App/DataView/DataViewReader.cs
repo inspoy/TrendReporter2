@@ -20,13 +20,13 @@ public sealed class DataViewReader
     {
         if (string.IsNullOrWhiteSpace(collectionName) || !TrendCollectionNames.All.Contains(collectionName))
         {
-            throw new ArgumentException($"Unknown collection '{collectionName}'.", nameof(collectionName));
+            throw new ArgumentException($"未知集合 '{collectionName}'。", nameof(collectionName));
         }
 
         var databasePath = LiteDbConnectionFactory.ResolveDatabasePath(_config.Database.Path);
         if (!File.Exists(databasePath))
         {
-            throw new FileNotFoundException($"LiteDB database file was not found at '{databasePath}'.", databasePath);
+            throw new FileNotFoundException($"LiteDB 数据库文件未找到: '{databasePath}'。", databasePath);
         }
 
         using var database = _connectionFactory.Open();

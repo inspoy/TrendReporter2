@@ -57,7 +57,7 @@ public sealed class WebExtractEnrichmentClient : IEnrichmentClient
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
             _logger.LogWarning(
-                "Web extract timed out for contentItemId={ContentItemId}. ElapsedMs={ElapsedMs}",
+                "网页提取超时，内容条目编号={ContentItemId}，耗时毫秒={ElapsedMs}",
                 item.Id,
                 stopwatch.ElapsedMilliseconds);
             return null;
@@ -66,7 +66,7 @@ public sealed class WebExtractEnrichmentClient : IEnrichmentClient
         {
             _logger.LogWarning(
                 ex,
-                "Web extract HTTP request failed for contentItemId={ContentItemId}. ElapsedMs={ElapsedMs}",
+                "网页提取 HTTP 请求失败，内容条目编号={ContentItemId}，耗时毫秒={ElapsedMs}",
                 item.Id,
                 stopwatch.ElapsedMilliseconds);
             return null;
@@ -75,7 +75,7 @@ public sealed class WebExtractEnrichmentClient : IEnrichmentClient
         {
             _logger.LogWarning(
                 ex,
-                "Web extract URL is invalid for contentItemId={ContentItemId}. ElapsedMs={ElapsedMs}",
+                "网页提取 URL 无效，内容条目编号={ContentItemId}，耗时毫秒={ElapsedMs}",
                 item.Id,
                 stopwatch.ElapsedMilliseconds);
             return null;
@@ -85,7 +85,7 @@ public sealed class WebExtractEnrichmentClient : IEnrichmentClient
         if (!result.Success)
         {
             _logger.LogWarning(
-                "Web extract returned failure for contentItemId={ContentItemId}. ElapsedMs={ElapsedMs}, Message={Message}, Title={Title}, Summary={Summary}",
+                "网页提取返回失败，内容条目编号={ContentItemId}，耗时毫秒={ElapsedMs}，消息={Message}，标题={Title}，摘要={Summary}",
                 item.Id,
                 stopwatch.ElapsedMilliseconds,
                 Truncate(NormalizeSnippet(result.Message), 300),
@@ -98,7 +98,7 @@ public sealed class WebExtractEnrichmentClient : IEnrichmentClient
         if (string.IsNullOrWhiteSpace(summary))
         {
             _logger.LogWarning(
-                "Web extract returned no usable content for contentItemId={ContentItemId}. ElapsedMs={ElapsedMs}, Message={Message}, Title={Title}",
+                "网页提取返回无可用内容，内容条目编号={ContentItemId}，耗时毫秒={ElapsedMs}，消息={Message}，标题={Title}",
                 item.Id,
                 stopwatch.ElapsedMilliseconds,
                 Truncate(NormalizeSnippet(result.Message), 300),
@@ -107,7 +107,7 @@ public sealed class WebExtractEnrichmentClient : IEnrichmentClient
         }
 
         _logger.LogInformation(
-            "Web extract succeeded for contentItemId={ContentItemId}. ElapsedMs={ElapsedMs}, Title={Title}, Summary={Summary}",
+            "网页提取成功，内容条目编号={ContentItemId}，耗时毫秒={ElapsedMs}，标题={Title}，摘要={Summary}",
             item.Id,
             stopwatch.ElapsedMilliseconds,
             Truncate(NormalizeSnippet(result.Title ?? item.Title), 160),

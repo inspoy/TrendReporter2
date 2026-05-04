@@ -37,7 +37,7 @@ if (options.Mode == CliMode.DataView)
 {
     try
     {
-        ExecuteDataView(config, options.DataView ?? throw new InvalidOperationException("data-view options were not parsed."));
+        ExecuteDataView(config, options.DataView ?? throw new InvalidOperationException("data-view 选项未被正确解析。"));
     }
     catch (Exception ex) when (ex is ArgumentException or FileNotFoundException or InvalidOperationException or LiteDB.LiteException)
     {
@@ -83,26 +83,26 @@ host.Services.GetRequiredService<ITrendDatabaseInitializer>().Initialize();
 
 if (options.ValidateOnly)
 {
-    logger.LogInformation("Validation mode completed successfully.");
+    logger.LogInformation("验证模式已成功完成。");
     return;
 }
 
 if (options.FetchOnce)
 {
-    logger.LogInformation("Fetch-once mode started.");
+    logger.LogInformation("单次抓取模式已启动。");
     await host.Services.GetRequiredService<IFetchJob>().RunAsync(CancellationToken.None);
-    logger.LogInformation("Fetch-once mode completed.");
+    logger.LogInformation("单次抓取模式已完成。");
     return;
 }
 
-logger.LogInformation("TrendReporter2 background service is starting.");
+logger.LogInformation("TrendReporter2 后台服务启动中。");
 await host.RunAsync();
 
 static void LogConfigSummary(ILogger logger, AppConfig config, CliOptions options)
 {
     var sourceCount = config.NewsNow.Sources.Values.Sum(sources => sources.Count);
     logger.LogInformation(
-        "Configuration loaded from {ConfigPath}. NewsNowBaseUrl={NewsNowBaseUrl}, Categories={CategoryCount}, Sources={SourceCount}, FetchIntervalSeconds={FetchInterval}.",
+        "配置已从 {ConfigPath} 加载。NewsNowBaseUrl={NewsNowBaseUrl}，分类数={CategoryCount}，来源数={SourceCount}，抓取间隔秒={FetchInterval}。",
         options.ConfigPath,
         config.NewsNow.BaseUrl,
         config.NewsNow.Sources.Count,
@@ -142,7 +142,7 @@ internal sealed record CliOptions(string ConfigPath, CliMode Mode, DataViewOptio
             {
                 if (arg.StartsWith("--", StringComparison.Ordinal))
                 {
-                    throw new ArgumentException("data-view requires a collection name. Usage: TrendReporter2.App data-view <collection> [--limit <n>] [--json] [--config <path>].");
+                    throw new ArgumentException("data-view 需要指定集合名称。用法: TrendReporter2.App data-view <collection> [--limit <n>] [--json] [--config <path>]。");
                 }
 
                 collection = arg;
@@ -154,12 +154,12 @@ internal sealed record CliOptions(string ConfigPath, CliMode Mode, DataViewOptio
             {
                 if (mode is CliMode.Validate or CliMode.FetchOnce)
                 {
-                    throw new ArgumentException("data-view cannot be combined with validate or fetch-once.");
+                    throw new ArgumentException("data-view 不能与 validate 或 fetch-once 同时使用。");
                 }
 
                 if (mode == CliMode.DataView)
                 {
-                    throw new ArgumentException("data-view may only be specified once.");
+                    throw new ArgumentException("data-view 只能指定一次。");
                 }
 
                 mode = CliMode.DataView;
@@ -171,12 +171,12 @@ internal sealed record CliOptions(string ConfigPath, CliMode Mode, DataViewOptio
             {
                 if (mode == CliMode.DataView)
                 {
-                    throw new ArgumentException("validate cannot be combined with data-view.");
+                    throw new ArgumentException("validate 不能与 data-view 同时使用。");
                 }
 
                 if (mode == CliMode.FetchOnce)
                 {
-                    throw new ArgumentException("Choose only one mode: validate, fetch-once, or data-view.");
+                    throw new ArgumentException("请只选择一种模式: validate、fetch-once 或 data-view。");
                 }
 
                 mode = CliMode.Validate;
@@ -187,12 +187,12 @@ internal sealed record CliOptions(string ConfigPath, CliMode Mode, DataViewOptio
             {
                 if (mode == CliMode.DataView)
                 {
-                    throw new ArgumentException("fetch-once cannot be combined with data-view.");
+                    throw new ArgumentException("fetch-once 不能与 data-view 同时使用。");
                 }
 
                 if (mode == CliMode.Validate)
                 {
-                    throw new ArgumentException("Choose only one mode: validate, fetch-once, or data-view.");
+                    throw new ArgumentException("请只选择一种模式: validate、fetch-once 或 data-view。");
                 }
 
                 mode = CliMode.FetchOnce;
@@ -203,7 +203,7 @@ internal sealed record CliOptions(string ConfigPath, CliMode Mode, DataViewOptio
             {
                 if (i + 1 >= args.Length)
                 {
-                    throw new ArgumentException("--config requires a file path.");
+                    throw new ArgumentException("--config 需要指定文件路径。");
                 }
 
                 configPath = args[++i];
@@ -214,18 +214,18 @@ internal sealed record CliOptions(string ConfigPath, CliMode Mode, DataViewOptio
             {
                 if (mode != CliMode.DataView)
                 {
-                    throw new ArgumentException("Unknown argument '--limit'. Usage: TrendReporter2.App [validate | fetch-once | data-view <collection> [--limit <n>] [--json] [--config <path>]].");
+                    throw new ArgumentException("未知参数 '--limit'。用法: TrendReporter2.App [validate | fetch-once | data-view <collection> [--limit <n>] [--json] [--config <path>]]。");
                 }
 
                 if (i + 1 >= args.Length)
                 {
-                    throw new ArgumentException("--limit must be an integer from 1 to 1000.");
+                    throw new ArgumentException("--limit 必须是 1 到 1000 之间的整数。");
                 }
 
                 var limitText = args[++i];
                 if (!int.TryParse(limitText, out limit) || limit is < 1 or > 1000)
                 {
-                    throw new ArgumentException("--limit must be an integer from 1 to 1000.");
+                    throw new ArgumentException("--limit 必须是 1 到 1000 之间的整数。");
                 }
 
                 continue;
@@ -235,31 +235,31 @@ internal sealed record CliOptions(string ConfigPath, CliMode Mode, DataViewOptio
             {
                 if (mode != CliMode.DataView)
                 {
-                    throw new ArgumentException("Unknown argument '--json'. Usage: TrendReporter2.App [validate | fetch-once | data-view <collection> [--limit <n>] [--json] [--config <path>]].");
+                    throw new ArgumentException("未知参数 '--json'。用法: TrendReporter2.App [validate | fetch-once | data-view <collection> [--limit <n>] [--json] [--config <path>]]。");
                 }
 
                 json = true;
                 continue;
             }
 
-            throw new ArgumentException($"Unknown argument '{arg}'. Usage: TrendReporter2.App [validate | fetch-once | data-view <collection> [--limit <n>] [--json] [--config <path>]].");
+            throw new ArgumentException($"未知参数 '{arg}'。用法: TrendReporter2.App [validate | fetch-once | data-view <collection> [--limit <n>] [--json] [--config <path>]]。");
         }
 
         if (expectCollection)
         {
-            throw new ArgumentException("data-view requires a collection name. Usage: TrendReporter2.App data-view <collection> [--limit <n>] [--json] [--config <path>].");
+            throw new ArgumentException("data-view 需要指定集合名称。用法: TrendReporter2.App data-view <collection> [--limit <n>] [--json] [--config <path>]。");
         }
 
         if (mode == CliMode.DataView)
         {
             if (collection is null)
             {
-                throw new ArgumentException("data-view requires a collection name. Usage: TrendReporter2.App data-view <collection> [--limit <n>] [--json] [--config <path>].");
+                throw new ArgumentException("data-view 需要指定集合名称。用法: TrendReporter2.App data-view <collection> [--limit <n>] [--json] [--config <path>]。");
             }
 
             if (!TrendCollectionNames.All.Contains(collection))
             {
-                throw new ArgumentException($"Unknown collection '{collection}'. Valid collections: {string.Join(", ", TrendCollectionNames.All)}.");
+                throw new ArgumentException($"未知集合 '{collection}'。有效集合: {string.Join(", ", TrendCollectionNames.All)}。");
             }
 
             dataView = new DataViewOptions(collection, limit, json);

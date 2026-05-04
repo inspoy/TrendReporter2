@@ -20,18 +20,18 @@ public sealed class YamlAppConfigLoader : IAppConfigLoader
     {
         if (string.IsNullOrWhiteSpace(path))
         {
-            throw new ArgumentException("Config path must not be empty.", nameof(path));
+            throw new ArgumentException("配置路径不能为空。", nameof(path));
         }
 
         if (!File.Exists(path))
         {
-            throw new FileNotFoundException($"Config file was not found: {path}", path);
+            throw new FileNotFoundException($"配置文件未找到: {path}", path);
         }
 
         var yaml = File.ReadAllText(path)
             .Replace("web_extract_url:", "webExtractUrl:", StringComparison.Ordinal);
         var config = _deserializer.Deserialize<AppConfig>(yaml)
-            ?? throw new InvalidOperationException($"Config file is empty: {path}");
+            ?? throw new InvalidOperationException($"配置文件为空: {path}");
 
         AppConfigValidator.Validate(config);
         return config;

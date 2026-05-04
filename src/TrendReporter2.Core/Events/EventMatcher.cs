@@ -128,7 +128,7 @@ public sealed class EventMatcher : IEventMatcher
         var candidates = await _candidateService.RecallAsync(item, now, cancellationToken);
         var match = candidates.Count > 0 && _clusterLlmClient.IsConfigured
             ? await _clusterLlmClient.MatchAsync(new ClusterMatchRequest(item, candidates), cancellationToken)
-            : ClusterMatchResult.CreateNew(candidates.Count == 0 ? "no recalled candidates" : "cluster llm is not configured");
+            : ClusterMatchResult.CreateNew(candidates.Count == 0 ? "没有召回的候选事件" : "聚类 LLM 未配置");
 
         return new PrecomputedEventMatch(item, candidates, match);
     }
@@ -174,7 +174,7 @@ public sealed class EventMatcher : IEventMatcher
         {
             var newEvent = CreateEvent(item, match, now);
             await _repository.UpsertEventAsync(newEvent, cancellationToken);
-            return new EventMatchOutcome(newEvent, true, false, 1, match.Reason ?? "created new event");
+            return new EventMatchOutcome(newEvent, true, false, 1, match.Reason ?? "创建新事件");
         }
 
         var eventAggregate = await _repository.GetEventAsync(matchedCandidate!.Event.Id, cancellationToken) ?? matchedCandidate.Event;
@@ -203,7 +203,7 @@ public sealed class EventMatcher : IEventMatcher
 
     private static EventAggregate CreateEvent(ContentItem item, ClusterMatchResult match, DateTimeOffset now)
     {
-        var title = FirstNonEmpty(match.CanonicalTitle, item.Title, item.Summary) ?? "Untitled event";
+        var title = FirstNonEmpty(match.CanonicalTitle, item.Title, item.Summary) ?? "未命名事件";
         var summary = FirstNonEmpty(match.Summary, item.Summary, item.HoverText, item.Title) ?? title;
         var entities = ExtractStableAnchors(title, summary, item.Title, item.Summary, item.HoverText);
         var aliases = ExtractStableAnchors(item.Title, match.CanonicalTitle, title);

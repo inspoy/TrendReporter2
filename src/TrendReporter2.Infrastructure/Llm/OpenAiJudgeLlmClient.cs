@@ -30,7 +30,7 @@ public sealed class OpenAiJudgeLlmClient : IJudgeLlmClient
     {
         if (!IsConfigured)
         {
-            return JudgeResult.Neutral("judge llm is not configured");
+            return JudgeResult.Neutral("评判 LLM 未配置");
         }
 
         var stopwatch = Stopwatch.StartNew();
@@ -52,12 +52,12 @@ public sealed class OpenAiJudgeLlmClient : IJudgeLlmClient
             if (!response.IsSuccessStatusCode)
             {
                 _logger.LogWarning(
-                    "Judge LLM request failed for eventId={EventId}. Status={StatusCode}, ElapsedMs={ElapsedMs}, Body={Body}",
+                    "评判 LLM 请求失败，事件编号={EventId}，HTTP状态={StatusCode}，耗时毫秒={ElapsedMs}，响应体={Body}",
                     request.Event.Id,
                     (int)response.StatusCode,
                     stopwatch.ElapsedMilliseconds,
                     Truncate(NormalizeSnippet(responseBody), 500));
-                return JudgeResult.Neutral("judge llm http failure");
+                return JudgeResult.Neutral("评判 LLM HTTP 请求失败");
             }
 
             return ParseResponse(responseBody, request.Event.Id, stopwatch.ElapsedMilliseconds);
@@ -70,10 +70,10 @@ public sealed class OpenAiJudgeLlmClient : IJudgeLlmClient
         {
             _logger.LogWarning(
                 ex,
-                "Judge LLM request failed for eventId={EventId}. ElapsedMs={ElapsedMs}",
+                "评判 LLM 请求失败，事件编号={EventId}，耗时毫秒={ElapsedMs}",
                 request.Event.Id,
                 stopwatch.ElapsedMilliseconds);
-            return JudgeResult.Neutral("judge llm request failed");
+            return JudgeResult.Neutral("评判 LLM 请求异常");
         }
     }
 
@@ -86,7 +86,7 @@ public sealed class OpenAiJudgeLlmClient : IJudgeLlmClient
                 new
                 {
                     role = "system",
-                    content = "You judge news event importance. Return only JSON with importance, boostScore, labels, reason, and optional summary, stage, progressSummary. boostScore must be 0 to 1. stage must be Initial, Expanding, Escalating, FollowUp, or Cooling if present."
+                    content = "你是一个新闻事件重要性评判助手。你需要判断新闻事件的重要程度。只返回 JSON，包含 importance、boostScore、labels、reason 字段，以及可选的 summary、stage、progressSummary 字段。boostScore 必须在 0 到 1 之间。stage 如果存在，必须为 Initial、Expanding、Escalating、FollowUp 或 Cooling。"
                 },
                 new
                 {
@@ -131,11 +131,11 @@ public sealed class OpenAiJudgeLlmClient : IJudgeLlmClient
             if (string.IsNullOrWhiteSpace(content))
             {
                 _logger.LogWarning(
-                    "Judge LLM returned empty content for eventId={EventId}. ElapsedMs={ElapsedMs}, Body={Body}",
+                    "评判 LLM 返回空内容，事件编号={EventId}，耗时毫秒={ElapsedMs}，响应体={Body}",
                     eventId,
                     elapsedMs,
                     Truncate(NormalizeSnippet(responseBody), 500));
-                return JudgeResult.Neutral("judge llm returned empty content");
+                return JudgeResult.Neutral("评判 LLM 返回空内容");
             }
 
             var parsed = JObject.Parse(content);
@@ -151,7 +151,7 @@ public sealed class OpenAiJudgeLlmClient : IJudgeLlmClient
                 NormalizeStage(parsed.Value<string>("stage")),
                 parsed.Value<string>("progressSummary"));
             _logger.LogInformation(
-                "Judge LLM parsed result for eventId={EventId}. ElapsedMs={ElapsedMs}, Importance={Importance}, BoostScore={BoostScore}, Stage={Stage}, Reason={Reason}",
+                "评判 LLM 解析结果，事件编号={EventId}，耗时毫秒={ElapsedMs}，重要性={Importance}，加权分数={BoostScore}，阶段={Stage}，原因={Reason}",
                 eventId,
                 elapsedMs,
                 result.Importance,
@@ -164,11 +164,11 @@ public sealed class OpenAiJudgeLlmClient : IJudgeLlmClient
         {
             _logger.LogWarning(
                 ex,
-                "Judge LLM returned invalid JSON for eventId={EventId}. ElapsedMs={ElapsedMs}, Body={Body}",
+                "评判 LLM 返回无效 JSON，事件编号={EventId}，耗时毫秒={ElapsedMs}，响应体={Body}",
                 eventId,
                 elapsedMs,
                 Truncate(NormalizeSnippet(responseBody), 500));
-            return JudgeResult.Neutral("judge llm returned invalid json");
+            return JudgeResult.Neutral("评判 LLM 返回无效 JSON");
         }
     }
 

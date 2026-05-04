@@ -135,7 +135,7 @@ public sealed class ContentIngestService : IContentIngestService
         }
 
         _logger.LogInformation(
-            "Ingested {TotalCount} content items for run={RunId}. Inserted={InsertedCount}, Updated={UpdatedCount}, Snapshots={SnapshotCount}.",
+            "已入库 {TotalCount} 条内容，运行编号={RunId}。新增={InsertedCount}，更新={UpdatedCount}，快照={SnapshotCount}。",
             items.Count,
             runId,
             inserted,

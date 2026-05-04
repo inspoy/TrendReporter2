@@ -9,8 +9,8 @@ public static class DataViewRenderer
     public static string RenderTable(DataViewResult result)
     {
         var builder = new StringBuilder();
-        builder.AppendLine($"Collection {result.CollectionName}");
-        builder.AppendLine($"{result.ReturnedRowCount} rows");
+        builder.AppendLine($"集合 {result.CollectionName}");
+        builder.AppendLine($"{result.ReturnedRowCount} 行");
 
         if (result.ReturnedRowCount == 0)
         {
@@ -20,7 +20,7 @@ public static class DataViewRenderer
         var columns = GetColumns(result.Rows);
         if (columns.Count == 0)
         {
-            builder.Append("(no fields)");
+            builder.Append("(无字段)");
             return builder.ToString().TrimEnd();
         }
 

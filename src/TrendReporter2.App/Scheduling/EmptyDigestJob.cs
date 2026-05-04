@@ -14,7 +14,7 @@ public sealed class EmptyDigestJob : IDigestJob
 
     public Task RunAsync(CancellationToken cancellationToken)
     {
-        _logger.LogInformation("Digest job placeholder executed. Business logic starts in M5.");
+        _logger.LogInformation("摘要任务占位执行完成，业务逻辑将在 M5 中实现。");
         return Task.CompletedTask;
     }
 }

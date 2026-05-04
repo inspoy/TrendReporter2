@@ -10,39 +10,39 @@ public static class AppConfigValidator
 
         var errors = new List<string>();
 
-        Require(!string.IsNullOrWhiteSpace(config.NewsNow.BaseUrl), "newsNow.baseUrl must not be empty.");
-        Require(!string.IsNullOrWhiteSpace(config.Database.Path), "database.path must not be empty.");
-        Require(config.Analysis.FetchInterval > 0, "analysis.fetchInterval must be greater than 0.");
-        Require(config.Analysis.HistoryHours > 0, "analysis.historyHours must be greater than 0.");
-        Require(config.Analysis.Push.PushCount > 0, "analysis.push.pushCount must be greater than 0.");
-        Require(config.Analysis.Push.PushTime.Count > 0, "analysis.push.pushTime must contain at least one time.");
+        Require(!string.IsNullOrWhiteSpace(config.NewsNow.BaseUrl), "newsNow.baseUrl 不能为空。");
+        Require(!string.IsNullOrWhiteSpace(config.Database.Path), "database.path 不能为空。");
+        Require(config.Analysis.FetchInterval > 0, "analysis.fetchInterval 必须大于 0。");
+        Require(config.Analysis.HistoryHours > 0, "analysis.historyHours 必须大于 0。");
+        Require(config.Analysis.Push.PushCount > 0, "analysis.push.pushCount 必须大于 0。");
+        Require(config.Analysis.Push.PushTime.Count > 0, "analysis.push.pushTime 必须至少包含一个时间。");
 
         foreach (var pushTime in config.Analysis.Push.PushTime)
         {
             Require(
                 TimeOnly.TryParseExact(pushTime, "HH:mm", CultureInfo.InvariantCulture, DateTimeStyles.None, out _),
-                $"analysis.push.pushTime contains invalid time '{pushTime}'. Expected HH:mm.");
+                $"analysis.push.pushTime 包含无效时间 '{pushTime}'，期望格式为 HH:mm。");
         }
 
-        Require(config.Analysis.Event.SourceCount > 0, "analysis.event.sourceCount must be greater than 0.");
-        Require(IsRatio(config.Analysis.Event.NormalizedRankThreshold), "analysis.event.normalizedRankThreshold must be between 0 and 1.");
-        Require(config.Analysis.Event.TrendWindowHours > 0, "analysis.event.trendWindowHours must be greater than 0.");
-        Require(config.Analysis.Event.StaleHours > 0, "analysis.event.staleHours must be greater than 0.");
-        Require(config.Analysis.Event.ArchiveRecallDays > 0, "analysis.event.archiveRecallDays must be greater than 0.");
-        Require(config.Analysis.Event.CandidateLimit > 0, "analysis.event.candidateLimit must be greater than 0.");
-        Require(IsRatio(config.Analysis.Event.MergeThreshold), "analysis.event.mergeThreshold must be between 0 and 1.");
-        Require(IsRatio(config.Analysis.Event.StaleMergeThreshold), "analysis.event.staleMergeThreshold must be between 0 and 1.");
-        Require(config.Analysis.Event.MinTrendSamples > 0, "analysis.event.minTrendSamples must be greater than 0.");
-        Require(config.Analysis.Event.MinTrendHeat >= 0, "analysis.event.minTrendHeat must not be negative.");
+        Require(config.Analysis.Event.SourceCount > 0, "analysis.event.sourceCount 必须大于 0。");
+        Require(IsRatio(config.Analysis.Event.NormalizedRankThreshold), "analysis.event.normalizedRankThreshold 必须在 0 到 1 之间。");
+        Require(config.Analysis.Event.TrendWindowHours > 0, "analysis.event.trendWindowHours 必须大于 0。");
+        Require(config.Analysis.Event.StaleHours > 0, "analysis.event.staleHours 必须大于 0。");
+        Require(config.Analysis.Event.ArchiveRecallDays > 0, "analysis.event.archiveRecallDays 必须大于 0。");
+        Require(config.Analysis.Event.CandidateLimit > 0, "analysis.event.candidateLimit 必须大于 0。");
+        Require(IsRatio(config.Analysis.Event.MergeThreshold), "analysis.event.mergeThreshold 必须在 0 到 1 之间。");
+        Require(IsRatio(config.Analysis.Event.StaleMergeThreshold), "analysis.event.staleMergeThreshold 必须在 0 到 1 之间。");
+        Require(config.Analysis.Event.MinTrendSamples > 0, "analysis.event.minTrendSamples 必须大于 0。");
+        Require(config.Analysis.Event.MinTrendHeat >= 0, "analysis.event.minTrendHeat 不能为负数。");
 
-        Require(config.Enrichment.MaxRequestsPerRun >= 0, "enrichment.maxRequestsPerRun must not be negative.");
-        Require(config.Enrichment.MinTitleLength > 0, "enrichment.minTitleLength must be greater than 0.");
-        Require(IsRatio(config.Enrichment.RecallWeakScoreThreshold), "enrichment.recallWeakScoreThreshold must be between 0 and 1.");
-        Require(config.Enrichment.RetryCooldownHours >= 0, "enrichment.retryCooldownHours must not be negative.");
+        Require(config.Enrichment.MaxRequestsPerRun >= 0, "enrichment.maxRequestsPerRun 不能为负数。");
+        Require(config.Enrichment.MinTitleLength > 0, "enrichment.minTitleLength 必须大于 0。");
+        Require(IsRatio(config.Enrichment.RecallWeakScoreThreshold), "enrichment.recallWeakScoreThreshold 必须在 0 到 1 之间。");
+        Require(config.Enrichment.RetryCooldownHours >= 0, "enrichment.retryCooldownHours 不能为负数。");
 
-        Require(config.System.MaxParallelFetch > 0, "system.maxParallelFetch must be greater than 0.");
-        Require(config.System.MaxParallelEnrichment > 0, "system.maxParallelEnrichment must be greater than 0.");
-        Require(config.System.MaxParallelLlm > 0, "system.maxParallelLlm must be greater than 0.");
+        Require(config.System.MaxParallelFetch > 0, "system.maxParallelFetch 必须大于 0。");
+        Require(config.System.MaxParallelEnrichment > 0, "system.maxParallelEnrichment 必须大于 0。");
+        Require(config.System.MaxParallelLlm > 0, "system.maxParallelLlm 必须大于 0。");
 
         try
         {
@@ -50,11 +50,11 @@ public static class AppConfigValidator
         }
         catch (TimeZoneNotFoundException)
         {
-            errors.Add($"system.timeZone '{config.System.TimeZone}' was not found on this machine.");
+            errors.Add($"system.timeZone '{config.System.TimeZone}' 在当前系统上未找到。");
         }
         catch (InvalidTimeZoneException)
         {
-            errors.Add($"system.timeZone '{config.System.TimeZone}' is invalid on this machine.");
+            errors.Add($"system.timeZone '{config.System.TimeZone}' 在当前系统上无效。");
         }
 
         if (errors.Count > 0)

@@ -41,7 +41,7 @@ public sealed class EnrichmentService : IEnrichmentService
 
         if (candidates.Count == 0)
         {
-            _logger.LogInformation("No content items need enrichment for run={RunId}.", runId);
+            _logger.LogInformation("运行 {RunId} 没有需要富化的内容条目。", runId);
             return new EnrichmentRunResult(0, 0, 0, 0, 0);
         }
 
@@ -49,12 +49,12 @@ public sealed class EnrichmentService : IEnrichmentService
         {
             foreach (var item in candidates)
             {
-                MarkSkipped(item, "Enrichment web extract URL is not configured.", startedAt);
+                MarkSkipped(item, "未配置富化网页提取 URL。", startedAt);
                 skipped++;
             }
 
             _logger.LogWarning(
-                "Skipped enrichment for run={RunId}; web extract URL is not configured. CandidateCount={CandidateCount}.",
+                "跳过富化处理，运行编号={RunId}；未配置网页提取 URL。候选数={CandidateCount}。",
                 runId,
                 candidates.Count);
             return new EnrichmentRunResult(candidates.Count, 0, 0, 0, skipped);
@@ -65,7 +65,7 @@ public sealed class EnrichmentService : IEnrichmentService
         {
             if (Volatile.Read(ref attempted) >= limit)
             {
-                MarkSkipped(item, "Per-run enrichment request limit reached.", startedAt);
+                MarkSkipped(item, "已达到每次运行富化请求上限。", startedAt);
                 Interlocked.Increment(ref skipped);
                 return;
             }
@@ -77,14 +77,14 @@ public sealed class EnrichmentService : IEnrichmentService
 
                 if (string.IsNullOrWhiteSpace(item.Url))
                 {
-                    MarkSkipped(item, "Content item has no URL.", startedAt);
+                    MarkSkipped(item, "内容条目没有 URL。", startedAt);
                     Interlocked.Increment(ref skipped);
                     return;
                 }
 
                 if (Interlocked.Increment(ref attempted) > limit)
                 {
-                    MarkSkipped(item, "Per-run enrichment request limit reached.", startedAt);
+                    MarkSkipped(item, "已达到每次运行富化请求上限。", startedAt);
                     Interlocked.Increment(ref skipped);
                     return;
                 }
@@ -115,7 +115,7 @@ public sealed class EnrichmentService : IEnrichmentService
                 {
                     _logger.LogWarning(
                         ex,
-                        "Enrichment failed for contentItemId={ContentItemId}, run={RunId}.",
+                        "富化处理失败，内容条目编号={ContentItemId}，运行编号={RunId}。",
                         item.Id,
                         runId);
                     ApplySummaryFallback(item, EnrichmentStatuses.Failed, startedAt, markTried: true);
@@ -131,7 +131,7 @@ public sealed class EnrichmentService : IEnrichmentService
         await Task.WhenAll(tasks);
 
         _logger.LogInformation(
-            "Enrichment finished for run={RunId}. Candidates={CandidateCount}, Attempted={AttemptedCount}, Succeeded={SucceededCount}, Failed={FailedCount}, Skipped={SkippedCount}.",
+            "富化处理完成，运行编号={RunId}。候选={CandidateCount}，已尝试={AttemptedCount}，成功={SucceededCount}，失败={FailedCount}，跳过={SkippedCount}。",
             runId,
             candidates.Count,
             attempted,
@@ -162,7 +162,7 @@ public sealed class EnrichmentService : IEnrichmentService
     private void MarkSkipped(ContentItem item, string reason, DateTimeOffset now)
     {
         _logger.LogInformation(
-            "Skipped enrichment for contentItemId={ContentItemId}. Reason={Reason}",
+            "跳过富化处理，内容条目编号={ContentItemId}。原因={Reason}",
             item.Id,
             reason);
         ApplySummaryFallback(item, EnrichmentStatuses.Skipped, now, markTried: false);

@@ -47,7 +47,7 @@ public sealed class FetchJob : IFetchJob
         var fetchRun = await _fetchRunRepository.CreateAsync(sources.Count, startedAt, cancellationToken);
 
         _logger.LogInformation(
-            "Fetch run {RunId} started. SourceCount={SourceCount}.",
+            "抓取运行 {RunId} 已开始。来源数={SourceCount}。",
             fetchRun.Id,
             sources.Count);
 
@@ -81,7 +81,7 @@ public sealed class FetchJob : IFetchJob
 
             var duration = (fetchRun.FinishedAt.Value - fetchRun.StartedAt).TotalSeconds;
             _logger.LogInformation(
-                "Fetch run {RunId} finished, cost {Cost:F1}s. Status={Status}, SuccessSources={SuccessSourceCount}, FailedSources={FailureSourceCount}, Items={FetchedItemCount}, Inserted={InsertedCount}, Updated={UpdatedCount}, Snapshots={SnapshotCount}, EnrichmentCandidates={EnrichmentCandidateCount}, Enriched={EnrichedItemCount}, EnrichmentFailed={EnrichmentFailedCount}, EnrichmentSkipped={EnrichmentSkippedCount}, MatchedEvents={MatchedEventCount}, CreatedEvents={CreatedEventCount}, MergedEvents={MergedEventCount}, ReactivatedEvents={ReactivatedEventCount}, ScoredEvents={ScoredEventCount}, EligibleEvents={EligibleEventCount}, PushedEvents={PushedEventCount}.",
+                "抓取运行 {RunId} 已完成，耗时 {Cost:F1}秒。状态={Status}，成功来源={SuccessSourceCount}，失败来源={FailureSourceCount}，条目={FetchedItemCount}，新增={InsertedCount}，更新={UpdatedCount}，快照={SnapshotCount}，富化候选={EnrichmentCandidateCount}，已富化={EnrichedItemCount}，富化失败={EnrichmentFailedCount}，富化跳过={EnrichmentSkippedCount}，匹配事件={MatchedEventCount}，新建事件={CreatedEventCount}，合并事件={MergedEventCount}，重新激活={ReactivatedEventCount}，评分事件={ScoredEventCount}，合格事件={EligibleEventCount}，已推送={PushedEventCount}。",
                 fetchRun.Id,
                 duration,
                 fetchRun.Status,
@@ -111,7 +111,7 @@ public sealed class FetchJob : IFetchJob
             await _fetchRunRepository.CompleteAsync(fetchRun, CancellationToken.None);
 
             var duration = (fetchRun.FinishedAt.Value - fetchRun.StartedAt).TotalSeconds;
-            _logger.LogError(ex, "Fetch run {RunId} failed, cost {Cost:F1}s.", fetchRun.Id, duration);
+            _logger.LogError(ex, "抓取运行 {RunId} 失败，耗时 {Cost:F1}秒。", fetchRun.Id, duration);
         }
     }
 
@@ -126,7 +126,7 @@ public sealed class FetchJob : IFetchJob
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            _logger.LogWarning(ex, "Enrichment failed for run={RunId}; fetch flow will continue.", runId);
+            _logger.LogWarning(ex, "富化处理失败，运行编号={RunId}；抓取流程将继续。", runId);
             return new EnrichmentRunResult(0, 0, 0, 1, 0);
         }
     }
@@ -142,7 +142,7 @@ public sealed class FetchJob : IFetchJob
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            _logger.LogWarning(ex, "Event matching failed for run={RunId}; fetch flow will continue.", runId);
+            _logger.LogWarning(ex, "事件匹配失败，运行编号={RunId}；抓取流程将继续。", runId);
             return new EventMatchRunResult(0, 0, 0, 0, 0, 0);
         }
     }
@@ -159,7 +159,7 @@ public sealed class FetchJob : IFetchJob
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            _logger.LogWarning(ex, "Event scoring and instant push failed for run={RunId}; fetch flow will continue.", runId);
+            _logger.LogWarning(ex, "事件评分和即时推送失败，运行编号={RunId}；抓取流程将继续。", runId);
             return new EventScoringRunResult(0, 0, 0);
         }
     }
@@ -189,7 +189,7 @@ public sealed class FetchJob : IFetchJob
         {
             _logger.LogWarning(
                 ex,
-                "Failed to fetch NewsNow source={Source}, category={Category}.",
+                "抓取 NewsNow 来源失败，来源={Source}，分类={Category}。",
                 source.Source,
                 source.Category);
             return SourceFetchResult.Failed(source.Category, source.Source, ex);

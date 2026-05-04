@@ -25,7 +25,7 @@ public sealed class FetchSchedulerService : BackgroundService
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         var interval = TimeSpan.FromSeconds(_config.Analysis.FetchInterval);
-        _logger.LogInformation("Fetch scheduler started. Interval={Interval}.", interval);
+        _logger.LogInformation("抓取调度器已启动，间隔={Interval}。", interval);
 
         await TryRunFetchAsync(stoppingToken);
 
@@ -40,15 +40,15 @@ public sealed class FetchSchedulerService : BackgroundService
     {
         if (!await _runLock.WaitAsync(0, cancellationToken))
         {
-            _logger.LogWarning("Skipping fetch schedule tick because the previous run is still active.");
+            _logger.LogWarning("跳过本次抓取调度，上一次运行尚未完成。");
             return;
         }
 
         try
         {
-            _logger.LogInformation("Fetch schedule tick started.");
+            _logger.LogInformation("抓取调度周期开始。");
             await _fetchJob.RunAsync(cancellationToken);
-            _logger.LogInformation("Fetch schedule tick finished.");
+            _logger.LogInformation("抓取调度周期结束。");
         }
         finally
         {

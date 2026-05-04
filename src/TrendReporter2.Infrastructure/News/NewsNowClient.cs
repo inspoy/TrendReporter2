@@ -39,14 +39,14 @@ public sealed class NewsNowClient : INewsSourceClient
         if (!response.IsSuccessStatusCode)
         {
             throw new HttpRequestException(
-                $"NewsNow request failed for source '{source}' with status {(int)response.StatusCode}: {response.ReasonPhrase}");
+                $"NewsNow 请求失败，来源='{source}'，状态码={(int)response.StatusCode}: {response.ReasonPhrase}");
         }
 
         var root = JObject.Parse(responseBody);
         var status = root.Value<string>("status") ?? string.Empty;
         if (!AcceptedStatuses.Contains(status))
         {
-            throw new InvalidOperationException($"NewsNow returned unsupported status '{status}' for source '{source}'.");
+            throw new InvalidOperationException($"NewsNow 返回了不支持的状态 '{status}'，来源='{source}'。");
         }
 
         var items = root["items"] as JArray ?? [];
@@ -57,7 +57,7 @@ public sealed class NewsNowClient : INewsSourceClient
         {
             if (items[i] is not JObject item)
             {
-                _logger.LogWarning("Skipping non-object NewsNow item at source={Source}, index={Index}.", source, i);
+                _logger.LogWarning("跳过非对象类型的 NewsNow 条目，来源={Source}，索引={Index}。", source, i);
                 continue;
             }
 
@@ -65,7 +65,7 @@ public sealed class NewsNowClient : INewsSourceClient
             var url = item.Value<string>("url")?.Trim() ?? string.Empty;
             if (string.IsNullOrWhiteSpace(title) && string.IsNullOrWhiteSpace(url))
             {
-                _logger.LogWarning("Skipping empty NewsNow item at source={Source}, index={Index}.", source, i);
+                _logger.LogWarning("跳过空 NewsNow 条目，来源={Source}，索引={Index}。", source, i);
                 continue;
             }
 
@@ -87,7 +87,7 @@ public sealed class NewsNowClient : INewsSourceClient
         }
 
         _logger.LogInformation(
-            "Fetched {ItemCount} items from NewsNow source={Source}, category={Category}, status={Status}.",
+            "从 NewsNow 获取到 {ItemCount} 条数据，来源={Source}，分类={Category}，状态={Status}。",
             result.Count,
             source,
             category,

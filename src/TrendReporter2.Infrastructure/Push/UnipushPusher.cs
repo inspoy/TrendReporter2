@@ -36,7 +36,7 @@ public sealed class UnipushPusher : IPusher
 
         if (config is null)
         {
-            return PushResult.Skipped("unipush is not configured", payload);
+            return PushResult.Skipped("unipush 未配置", payload);
         }
 
         try
@@ -52,8 +52,8 @@ public sealed class UnipushPusher : IPusher
                 return new PushResult(true, payload, null);
             }
 
-            var error = $"unipush http {(int)response.StatusCode}: {Truncate(responseBody, 300)}";
-            _logger.LogWarning("Unipush failed for eventId={EventId}. {Error}", message.EventId, error);
+            var error = $"unipush HTTP {(int)response.StatusCode}: {Truncate(responseBody, 300)}";
+            _logger.LogWarning("Unipush 推送失败，事件编号={EventId}。{Error}", message.EventId, error);
             return new PushResult(false, payload, error);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -62,8 +62,8 @@ public sealed class UnipushPusher : IPusher
         }
         catch (Exception ex) when (ex is HttpRequestException or UriFormatException or TaskCanceledException)
         {
-            _logger.LogWarning(ex, "Unipush request failed for eventId={EventId}.", message.EventId);
-            return new PushResult(false, payload, "unipush request failed");
+            _logger.LogWarning(ex, "Unipush 请求失败，事件编号={EventId}。", message.EventId);
+            return new PushResult(false, payload, "unipush 请求失败");
         }
     }
 

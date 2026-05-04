@@ -74,6 +74,7 @@ llm:
 enrichment:
   web_extract_url: "" # 自定义的web页抓取服务
   enabledSources: [] # 这些信源必使用增强服务，其他的再后续判断
+  disabledSources: [] # 这些信源禁止使用增强服务
   maxRequestsPerRun: 5 # 每次分析最多调用增强服务的次数
   minTitleLength: 14 # 标题长度小于该值的新闻视为需要增强
   onlyWhenRecallWeak: true # 暂时没用到

@@ -36,7 +36,7 @@ public sealed class LiteDbInitializer : ITrendDatabaseInitializer
         EnsureAppStateIndexes(database);
 
         _logger.LogInformation(
-            "LiteDB initialized at {DatabasePath} with {CollectionCount} collections.",
+            "LiteDB 已在 {DatabasePath} 初始化完成，共 {CollectionCount} 个集合。",
             databasePath,
             TrendCollectionNames.All.Count);
     }

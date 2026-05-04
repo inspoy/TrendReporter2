@@ -83,7 +83,7 @@ public sealed record ClusterMatchResult(
     string? Reason)
 {
     public static ClusterMatchResult CreateNew(string? reason = null)
-        => new(ClusterDecisions.Unrelated, null, null, null, 0, reason ?? "create new event");
+        => new(ClusterDecisions.Unrelated, null, null, null, 0, reason ?? "创建新事件");
 }
 
 public sealed record EventMatchRunResult(
