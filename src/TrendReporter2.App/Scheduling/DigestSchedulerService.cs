@@ -40,13 +40,24 @@ public sealed class DigestSchedulerService : BackgroundService
             var currentTime = localNow.ToString("HH:mm");
             var currentSlot = $"{localNow:yyyy-MM-dd}:{currentTime}";
 
-            if (_config.Analysis.Push.PushTime.Contains(currentTime, StringComparer.Ordinal) && !string.Equals(_lastTriggeredSlot, currentSlot, StringComparison.Ordinal))
+            try
             {
-                _lastTriggeredSlot = currentSlot;
-                await TryRunDigestAsync(DateOnly.FromDateTime(localNow.DateTime), currentTime, localNow, stoppingToken);
-            }
+                if (_config.Analysis.Push.PushTime.Contains(currentTime, StringComparer.Ordinal) && !string.Equals(_lastTriggeredSlot, currentSlot, StringComparison.Ordinal))
+                {
+                    _lastTriggeredSlot = currentSlot;
+                    await TryRunDigestAsync(DateOnly.FromDateTime(localNow.DateTime), currentTime, localNow, stoppingToken);
+                }
 
-            await timer.WaitForNextTickAsync(stoppingToken);
+                await timer.WaitForNextTickAsync(stoppingToken);
+            }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+            {
+                break;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "摘要调度循环发生未预期错误；调度器将继续等待下一轮。");
+            }
         }
     }
 
@@ -63,6 +74,14 @@ public sealed class DigestSchedulerService : BackgroundService
             _logger.LogInformation("摘要调度触发，本地日期={LocalDate}，时段={SlotTime}。", localDate, slotTime);
             await _digestJob.RunAsync(localDate, slotTime, localNow, cancellationToken);
             _logger.LogInformation("摘要调度完成，本地日期={LocalDate}，时段={SlotTime}。", localDate, slotTime);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "摘要调度发生未预期错误；本轮已终止，后续调度将继续。本地日期={LocalDate}，时段={SlotTime}。", localDate, slotTime);
         }
         finally
         {

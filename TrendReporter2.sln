@@ -11,6 +11,10 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TrendReporter2.Core", "src\
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TrendReporter2.Infrastructure", "src\TrendReporter2.Infrastructure\TrendReporter2.Infrastructure.csproj", "{409F99DD-663C-4596-8856-862D8E2E45CB}"
 EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests", "tests", "{E646FED2-C2B3-4FD4-A19E-140C67D24E2E}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TrendReporter2.Tests", "tests\TrendReporter2.Tests\TrendReporter2.Tests.csproj", "{63ACC6F0-A875-4427-9DD9-95065E0CA34D}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -32,10 +36,15 @@ Global
 		{409F99DD-663C-4596-8856-862D8E2E45CB}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{409F99DD-663C-4596-8856-862D8E2E45CB}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{409F99DD-663C-4596-8856-862D8E2E45CB}.Release|Any CPU.Build.0 = Release|Any CPU
+		{63ACC6F0-A875-4427-9DD9-95065E0CA34D}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{63ACC6F0-A875-4427-9DD9-95065E0CA34D}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{63ACC6F0-A875-4427-9DD9-95065E0CA34D}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{63ACC6F0-A875-4427-9DD9-95065E0CA34D}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(NestedProjects) = preSolution
 		{B2F22746-BB78-4056-9477-45062679BE2E} = {70783301-D409-4943-8E17-5B0B2F531F2A}
 		{E48ECA04-07E2-401B-A3FA-AF116DF8C37A} = {70783301-D409-4943-8E17-5B0B2F531F2A}
 		{409F99DD-663C-4596-8856-862D8E2E45CB} = {70783301-D409-4943-8E17-5B0B2F531F2A}
+		{63ACC6F0-A875-4427-9DD9-95065E0CA34D} = {E646FED2-C2B3-4FD4-A19E-140C67D24E2E}
 	EndGlobalSection
 EndGlobal

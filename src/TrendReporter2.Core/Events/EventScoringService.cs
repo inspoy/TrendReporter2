@@ -45,7 +45,7 @@ public sealed class EventScoringService : IEventScoringService
             return new EventScoringRunResult(0, 0, 0);
         }
 
-        _logger.LogInformation("开始执行事件评分, inputs=" + inputs.Count);
+        _logger.LogInformation("开始执行事件评分，输入事件数={InputCount}。", inputs.Count);
         var eventIds = inputs.Select(input => input.Event.Id).Distinct(StringComparer.Ordinal).ToList();
         var trendSince = now.AddHours(-Math.Max(1, _config.Analysis.Event.TrendWindowHours));
         var recentSnapshots = await _repository.LoadRecentScoreSnapshotsAsync(eventIds, trendSince, cancellationToken);
@@ -105,7 +105,11 @@ public sealed class EventScoringService : IEventScoringService
                     }
                     else
                     {
-                        _logger.LogInformation("合格事件未推送，原因：" + dontPushReason);
+                        _logger.LogInformation(
+                            PushSkippedEventId,
+                            "合格事件未推送，事件编号={EventId}，原因={Reason}。",
+                            input.Event.Id,
+                            dontPushReason);
                     }
                 }
 

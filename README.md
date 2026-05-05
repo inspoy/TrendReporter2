@@ -15,7 +15,7 @@ V1 的目标不是新闻阅读器，而是事件级趋势发现与推送系统�
 - 基于规则召回候选事件，并可通过 OpenAI 兼容的 Cluster LLM 辅助事件归并。
 - 支持后台调度、单次抓取、配置校验和 LiteDB 数据查看命令。
 
-根据 [里程碑文档](docs/milestones.md)，M0-M2 已完成，M3-M6 仍在推进中。评分、即时推送、定时摘要、黑名单降噪和完整回归测试仍属于后续工作。
+根据 [里程碑文档](docs/milestones.md)，M0-M6 的最小主链路与稳定性补齐已具备：事件评分、即时推送、定时摘要、黑名单降噪、基础测试和回归样本已落地。
 
 ## 核心功能设计
 
@@ -121,7 +121,13 @@ dotnet run --project src/TrendReporter2.App/TrendReporter2.App.csproj -- fetch-o
 dotnet run --project src/TrendReporter2.App/TrendReporter2.App.csproj
 ```
 
-后台服务启动后会立即执行一轮抓取，之后按 `analysis.fetchInterval` 周期运行。摘要调度器当前仍挂载在进程中，但真实摘要任务尚未完成。
+后台服务启动后会立即执行一轮抓取，之后按 `analysis.fetchInterval` 周期运行。摘要调度器会按 `analysis.push.pushTime` 触发摘要任务，并通过 `app_state` 和 `push_log` 控制同一时段幂等。
+
+执行一次摘要：
+
+```bash
+dotnet run --project src/TrendReporter2.App/TrendReporter2.App.csproj -- digest-once
+```
 
 ## 常用命令
 
@@ -177,15 +183,17 @@ data/trend.db
 
 ## 测试与验证
 
-当前仓库暂未包含独立测试项目。开发或变更后建议至少执行：
+当前仓库包含 xUnit 测试项目。开发或变更后建议至少执行：
 
 ```bash
 dotnet restore TrendReporter2.sln --configfile NuGet.Config
 dotnet build TrendReporter2.sln --no-restore -m:1 /p:UseSharedCompilation=false --verbosity minimal
+dotnet build TrendReporter2.sln --configuration Release --no-restore -m:1 /p:UseSharedCompilation=false --verbosity minimal
+dotnet test TrendReporter2.sln --configuration Release --no-build --disable-build-servers -m:1 --verbosity normal
 dotnet run --project src/TrendReporter2.App/TrendReporter2.App.csproj -- validate --config config.example.yaml
 ```
 
-后续 M6 计划补齐关键单元测试、集成测试、真实新闻回归样本和更完整的运行说明。
+测试不依赖真实外部服务：HTTP 适配器使用 fake handler，持久化测试使用临时 LiteDB 文件，回归样本位于 `tests/TrendReporter2.Tests/Fixtures/regression-corpus.json`。更多说明见 [测试与回归说明](docs/testing.md)。
 
 ## 详细文档
 
@@ -193,6 +201,8 @@ dotnet run --project src/TrendReporter2.App/TrendReporter2.App.csproj -- validat
 - [V1 技术设计稿](docs/technical-design.md)
 - [C# 工程结构说明](docs/tech_stack.md)
 - [V1 里程碑与任务清单](docs/milestones.md)
+- [运行说明](docs/running.md)
+- [测试与回归说明](docs/testing.md)
 
 ## 许可证
 

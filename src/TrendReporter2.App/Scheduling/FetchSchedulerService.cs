@@ -30,9 +30,25 @@ public sealed class FetchSchedulerService : BackgroundService
         await TryRunFetchAsync(stoppingToken);
 
         using var timer = new PeriodicTimer(interval);
-        while (await timer.WaitForNextTickAsync(stoppingToken))
+        while (!stoppingToken.IsCancellationRequested)
         {
-            await TryRunFetchAsync(stoppingToken);
+            try
+            {
+                if (!await timer.WaitForNextTickAsync(stoppingToken))
+                {
+                    break;
+                }
+
+                await TryRunFetchAsync(stoppingToken);
+            }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+            {
+                break;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "抓取调度循环发生未预期错误；调度器将继续等待下一轮。");
+            }
         }
     }
 
@@ -49,6 +65,14 @@ public sealed class FetchSchedulerService : BackgroundService
             _logger.LogInformation("抓取调度周期开始。");
             await _fetchJob.RunAsync(cancellationToken);
             _logger.LogInformation("抓取调度周期结束。");
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "抓取调度周期发生未预期错误；本轮已终止，后续调度将继续。");
         }
         finally
         {

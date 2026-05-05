@@ -54,6 +54,15 @@ public sealed class FetchJob : IFetchJob
         try
         {
             var sourceResults = await FetchSourcesAsync(sources, cancellationToken);
+            foreach (var sourceResult in sourceResults.Where(result => result.Success))
+            {
+                _logger.LogInformation(
+                    "NewsNow 来源抓取成功，来源={Source}，分类={Category}，条目={ItemCount}。",
+                    sourceResult.Source,
+                    sourceResult.Category,
+                    sourceResult.Items.Count);
+            }
+
             var allItems = sourceResults.Where(result => result.Success).SelectMany(result => result.Items).ToList();
             var ingestResult = await _contentIngestService.IngestAsync(
                 fetchRun.Id,

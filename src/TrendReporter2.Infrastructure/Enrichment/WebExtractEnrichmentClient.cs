@@ -43,23 +43,15 @@ public sealed class WebExtractEnrichmentClient : IEnrichmentClient
         {
             using var response = await _httpClient.SendAsync(request, cancellationToken);
             responseBody = await response.Content.ReadAsStringAsync(cancellationToken);
-
-            // if (!response.IsSuccessStatusCode)
-            // {
-            //     _logger.LogWarning(
-            //         "Web extract failed for contentItemId={ContentItemId}, status={StatusCode}, reason={ReasonPhrase}.",
-            //         item.Id,
-            //         (int)response.StatusCode,
-            //         response.ReasonPhrase);
-            //     return null;
-            // }
+            // Some WebExtract deployments return useful JSON payloads with non-2xx status codes.
+            // The response body is the source of truth; parse it before deciding whether to fall back.
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
             _logger.LogWarning(
                 "网页提取超时，内容条目编号={ContentItemId}，耗时{ElapsedSec:F1}s",
                 item.Id,
-                stopwatch.Elapsed.Seconds);
+                stopwatch.Elapsed.TotalSeconds);
             return null;
         }
         catch (HttpRequestException ex)
@@ -68,7 +60,7 @@ public sealed class WebExtractEnrichmentClient : IEnrichmentClient
                 ex,
                 "网页提取 HTTP 请求失败，内容条目编号={ContentItemId}，耗时{ElapsedSec:F1}s",
                 item.Id,
-                stopwatch.Elapsed.Seconds);
+                stopwatch.Elapsed.TotalSeconds);
             return null;
         }
         catch (UriFormatException ex)
@@ -77,7 +69,7 @@ public sealed class WebExtractEnrichmentClient : IEnrichmentClient
                 ex,
                 "网页提取 URL 无效，内容条目编号={ContentItemId}，耗时{ElapsedSec:F1}s",
                 item.Id,
-                stopwatch.Elapsed.Seconds);
+                stopwatch.Elapsed.TotalSeconds);
             return null;
         }
 
@@ -87,7 +79,7 @@ public sealed class WebExtractEnrichmentClient : IEnrichmentClient
             _logger.LogWarning(
                 "网页提取返回失败，内容条目编号={ContentItemId}，耗时{ElapsedSec:F1}s，消息={Message}，标题={Title}，摘要={Summary}",
                 item.Id,
-                stopwatch.Elapsed.Seconds,
+                stopwatch.Elapsed.TotalSeconds,
                 Truncate(NormalizeSnippet(result.Message), 300),
                 Truncate(NormalizeSnippet(result.Title), 160),
                 Truncate(NormalizeSnippet(result.Summary), 300));
@@ -100,7 +92,7 @@ public sealed class WebExtractEnrichmentClient : IEnrichmentClient
             _logger.LogWarning(
                 "网页提取返回无可用内容，内容条目编号={ContentItemId}，耗时{ElapsedSec:F1}s，消息={Message}，标题={Title}",
                 item.Id,
-                stopwatch.Elapsed.Seconds,
+                stopwatch.Elapsed.TotalSeconds,
                 Truncate(NormalizeSnippet(result.Message), 300),
                 Truncate(NormalizeSnippet(result.Title), 160));
             return null;
@@ -109,7 +101,7 @@ public sealed class WebExtractEnrichmentClient : IEnrichmentClient
         _logger.LogInformation(
             "网页提取成功，内容条目编号={ContentItemId}，耗时{ElapsedSec:F1}s，标题={Title}，摘要={Summary}",
             item.Id,
-            stopwatch.Elapsed.Seconds,
+            stopwatch.Elapsed.TotalSeconds,
             Truncate(NormalizeSnippet(result.Title ?? item.Title), 160),
             Truncate(summary, 300));
 

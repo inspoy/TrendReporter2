@@ -123,7 +123,7 @@ public sealed class EventMatcher : IEventMatcher
                 var p = Interlocked.Increment(ref progress);
                 if (p % 10 == 0)
                 {
-                    _logger.LogInformation("已处理{}次聚类分析", p);
+                    _logger.LogInformation("已处理 {ProcessedCount} 次聚类分析", p);
                 }
                 return match;
             }
