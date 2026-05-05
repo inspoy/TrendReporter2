@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
+using Microsoft.Extensions.Logging;
 using TrendReporter2.Core.Configuration;
 using TrendReporter2.Core.Content;
 
@@ -19,6 +20,7 @@ public sealed class EventMatcher : IEventMatcher
     private static readonly Regex StableAnchorTokenRegex = new(@"\b[\p{L}\p{N}][\p{L}\p{N}'&.-]*\b", RegexOptions.Compiled);
 
     private readonly AppConfig _config;
+    private readonly ILogger _logger;
     private readonly IEventRepository _repository;
     private readonly IEventCandidateService _candidateService;
     private readonly IClusterLlmClient _clusterLlmClient;
@@ -27,12 +29,14 @@ public sealed class EventMatcher : IEventMatcher
         AppConfig config,
         IEventRepository repository,
         IEventCandidateService candidateService,
-        IClusterLlmClient clusterLlmClient)
+        IClusterLlmClient clusterLlmClient,
+        ILoggerFactory loggerFactory)
     {
         _config = config;
         _repository = repository;
         _candidateService = candidateService;
         _clusterLlmClient = clusterLlmClient;
+        _logger = loggerFactory.CreateLogger("EventMatcher");
     }
 
     public async Task<EventMatchRunResult> MatchRunAsync(string runId, DateTimeOffset now, CancellationToken cancellationToken)
@@ -103,14 +107,25 @@ public sealed class EventMatcher : IEventMatcher
         CancellationToken cancellationToken)
     {
         var maxParallelLlm = Math.Max(1, _config.System.MaxParallelLlm);
+        _logger.LogInformation(
+            "需要计算{Total}次聚类分析，并发数={Parallel}",
+            items.Count, maxParallelLlm
+        );
         using var semaphore = new SemaphoreSlim(maxParallelLlm);
+        var progress = 0;
         var tasks = items.Select(async item =>
         {
             await semaphore.WaitAsync(cancellationToken);
             try
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                return await RecallAndMatchAsync(item, now, cancellationToken);
+                var match =  await RecallAndMatchAsync(item, now, cancellationToken);
+                var p = Interlocked.Increment(ref progress);
+                if (p % 10 == 0)
+                {
+                    _logger.LogInformation("已处理{}次聚类分析", p);
+                }
+                return match;
             }
             finally
             {
@@ -118,7 +133,9 @@ public sealed class EventMatcher : IEventMatcher
             }
         });
 
-        return await Task.WhenAll(tasks);
+        var result =  await Task.WhenAll(tasks);
+        _logger.LogInformation("聚类分析预计算已完成");
+        return result;
     }
 
     private async Task<PrecomputedEventMatch> RecallAndMatchAsync(
@@ -127,11 +144,12 @@ public sealed class EventMatcher : IEventMatcher
         CancellationToken cancellationToken)
     {
         var candidates = await _candidateService.RecallAsync(item, now, cancellationToken);
-        var match = candidates.Count > 0 && _clusterLlmClient.IsConfigured
+        var useLlm = candidates.Count > 0 && _clusterLlmClient.IsConfigured;
+        var match = useLlm
             ? await _clusterLlmClient.MatchAsync(new ClusterMatchRequest(item, candidates), cancellationToken)
             : ClusterMatchResult.CreateNew(candidates.Count == 0 ? "没有召回的候选事件" : "聚类 LLM 未配置");
 
-        return new PrecomputedEventMatch(item, candidates, match);
+        return new PrecomputedEventMatch(item, candidates, match, useLlm);
     }
 
     private bool ShouldRevalidateBeforeCommit(
@@ -447,7 +465,8 @@ public sealed class EventMatcher : IEventMatcher
     private sealed record PrecomputedEventMatch(
         ContentItem Item,
         IReadOnlyList<EventCandidate> Candidates,
-        ClusterMatchResult Match);
+        ClusterMatchResult Match,
+        bool useLlm);
 
     private sealed record EventMatchOutcome(
         EventAggregate Event,
