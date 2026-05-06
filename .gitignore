@@ -6,3 +6,6 @@ bin/
 obj/
 data/
 publish/
+tools/**/.env
+tools/**/.venv/
+tools/**/__pycache__/

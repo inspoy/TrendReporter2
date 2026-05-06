@@ -14,6 +14,7 @@ TrendReporter2/
 ├── config.example.yaml           # committed template; copy to ignored config.yaml
 ├── docs/                         # Chinese design, milestones, C# layout notes, testing notes
 ├── prompts/                      # product/task prompt artifacts, not runtime code
+├── tools/                         # standalone local diagnostics/helpers
 ├── tests/
 │   └── TrendReporter2.Tests/     # xUnit tests and regression corpus
 ├── data/                         # ignored runtime LiteDB data
@@ -46,6 +47,7 @@ Tests -> App/Core/Infrastructure
 | Enrichment policy/adapters | `src/TrendReporter2.Core/Enrichment/`, `src/TrendReporter2.Infrastructure/Enrichment/` | Weak-title policy, WebExtract calls, cooldowns, budgets. |
 | LiteDB schema/repositories | `src/TrendReporter2.Infrastructure/Persistence/` | Indexes, IDs, dedup keys, repository queries, app state persistence. |
 | HTTP NewsNow adapter | `src/TrendReporter2.Infrastructure/News/NewsNowClient.cs` | Calls `GET /api/s?id=source`. |
+| NewsNow enrichment diagnostic | `tools/newsnow_fetch_test/` | Python venv helper; reads `sources.txt` and `.env`, tests HoverText/WebExtract/title length for configurable items per source. |
 | LLM adapters | `src/TrendReporter2.Infrastructure/Llm/` | OpenAI-compatible chat completions; JSON-only responses. |
 | DI boundary | `src/TrendReporter2.Infrastructure/DependencyInjection.cs` | Infrastructure implementations behind Core interfaces. |
 | Tests | `tests/TrendReporter2.Tests/` | xUnit policy, persistence, adapter, digest, scoring, and regression corpus tests. |
@@ -93,6 +95,7 @@ Tests -> App/Core/Infrastructure
 - Build docs intentionally disable shared compilation/parallelism for stability.
 - `Program.cs` loads config before host construction, then either runs one-shot modes or starts Generic Host.
 - Data-view is an admin/debug path in App that directly uses `LiteDbConnectionFactory`.
+- `tools/newsnow_fetch_test/` is standalone Python: use venv + `requirements.txt`; keep local `.env` and `.venv/` ignored.
 - M0-M6 are complete; scheduled digest is implemented by `DigestJob` and `DigestSchedulerService`.
 
 ## COMMANDS
@@ -107,10 +110,11 @@ dotnet run --project src/TrendReporter2.App/TrendReporter2.App.csproj -- digest-
 dotnet run --project src/TrendReporter2.App/TrendReporter2.App.csproj
 dotnet run --project src/TrendReporter2.App/TrendReporter2.App.csproj -- data-view content_item --limit 20
 dotnet run --project src/TrendReporter2.App/TrendReporter2.App.csproj -- data-view app_state --limit 20
+cd tools/newsnow_fetch_test && python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt && python newsnow_fetch_test.py
 ```
 
 ## NOTES
 - CI runs `dotnet test`; the solution includes the xUnit project at `tests/TrendReporter2.Tests`.
 - Validation baseline is build, tests, and `validate --config config.example.yaml`.
-- Root `.gitignore` excludes `.sisyphus`, `config.yaml`, `bin/`, `obj/`, and `data/`.
+- Root `.gitignore` excludes `.sisyphus`, `config.yaml`, `bin/`, `obj/`, `data/`, and tool-local `.env` / `.venv` paths.
 - `docs/tech_stack.md` is partly stale: it still mentions older milestone names like Tavily, but the current code uses WebExtract naming.

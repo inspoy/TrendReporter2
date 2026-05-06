@@ -1,0 +1,38 @@
+# One NewsNow source id per line. Blank lines and # comments are ignored.
+# 一行一条NewsNow的source，空行、#开头的行和行尾#注释会被忽略
+# Example: ifeng # 凤凰网
+
+# china
+zhihu # hot
+toutiao # hot
+thepaper # hot 澎湃
+baidu # hot
+ifeng # hot
+tencent-hot # hot
+
+# tech
+v2ex # latest
+ithome # latest
+solidot # latest
+hackernews # hot
+sspai # hot
+juejin # hot
+
+# world
+zaobao # latest
+sputniknewscn # latest
+cankaoxiaoxi # latest
+
+# finance
+wallstreetcn-hot # hot
+cls-hot # hot
+jin10 # latest
+wallstreetcn-quick # latest
+
+# social
+weibo # hot
+douyin # hot
+kuaishou # hot
+tieba # hot
+hupu # hot
+bilibili-hot-search # hot

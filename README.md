@@ -42,6 +42,7 @@ V1 的目标不是新闻阅读器，而是事件级趋势发现与推送系统�
 TrendReporter2.sln
 config.example.yaml
 docs/
+tools/
 src/
   TrendReporter2.App/             # 程序入口、CLI、后台调度、数据查看
   TrendReporter2.Core/            # 配置模型、领域模型、服务接口、核心规则
@@ -154,6 +155,17 @@ event_score_snapshot
 push_log
 fetch_run
 app_state
+```
+
+NewsNow 信源富化适配性诊断工具位于 `tools/newsnow_fetch_test/`。它使用 Python venv 和 `.env`，从 `sources.txt` 读取信源，按 `NEWS_ITEM_LIMIT` 检查每个信源的若干条新闻的 `HoverText`、WebExtract URL 抽取可用性、标题长度和最终摘要来源。
+
+```bash
+cd tools/newsnow_fetch_test
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env
+python newsnow_fetch_test.py
 ```
 
 ## 配置概览
