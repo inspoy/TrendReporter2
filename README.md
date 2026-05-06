@@ -202,6 +202,7 @@ dotnet run --project src/TrendReporter2.App/TrendReporter2.App.csproj -- validat
 - [C# 工程结构说明](docs/tech_stack.md)
 - [V1 里程碑与任务清单](docs/milestones.md)
 - [运行说明](docs/running.md)
+- [即时推送中的 Score 与 Heat](docs/scoring-and-heat.md)
 - [测试与回归说明](docs/testing.md)
 
 ## 许可证
