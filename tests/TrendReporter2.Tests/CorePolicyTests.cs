@@ -16,13 +16,17 @@ public sealed class CorePolicyTests
             Enrichment = new EnrichmentConfig
             {
                 EnabledSources = ["forced"],
+                DisabledSources = ["disabled", "forced-disabled"],
                 MinTitleLength = 10
             }
         });
 
         Assert.True(policy.NeedEnrichment(new NewsItem { Source = "forced", Title = "完整标题", HoverText = CompleteHover() }));
+        Assert.False(policy.NeedEnrichment(new NewsItem { Source = "disabled", Title = "突发", HoverText = null }));
+        Assert.False(policy.NeedEnrichment(new NewsItem { Source = "forced-disabled", Title = "突发", HoverText = null }));
         Assert.False(policy.NeedEnrichment(new NewsItem { Source = "other", Title = "OpenAI 发布新的模型能力", HoverText = CompleteHover() }));
         Assert.True(policy.NeedEnrichment(new NewsItem { Source = "other", Title = "突发", HoverText = null }));
+        Assert.False(policy.NeedEnrichment(new ContentItem { Source = "disabled", Title = "突发", HoverText = null }));
         Assert.False(policy.NeedEnrichment(new ContentItem { Source = "other", Title = "OpenAI 发布新的模型能力", HoverText = null }));
     }
 

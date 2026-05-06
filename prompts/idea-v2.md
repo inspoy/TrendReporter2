@@ -5,3 +5,5 @@ LLM调用优化：
 
 1. 由于LLM返回的结果不稳定，每次调用LLM时，都给3次重试机会，重试次数不走配置了，定义一个`const int`就行
 2. 每次FetchJob，都统计一下这次调用了多少次LLM，每个LlmClient消耗了多少Token，根据配置的单价计算成本，打印在控制台Log里
+
+迁移LiteDB到外部PostgreSQL（Dapper+npgsql），同时也方便后续接入Grafana

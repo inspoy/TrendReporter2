@@ -28,12 +28,16 @@ public sealed class EnrichmentPolicy : IEnrichmentPolicy
 
     private readonly AppConfig _config;
     private readonly HashSet<string> _enabledSources;
+    private readonly HashSet<string> _disabledSources;
 
     public EnrichmentPolicy(AppConfig config)
     {
         _config = config;
         _enabledSources = new HashSet<string>(
             config.Enrichment.EnabledSources.Where(source => !string.IsNullOrWhiteSpace(source)),
+            StringComparer.OrdinalIgnoreCase);
+        _disabledSources = new HashSet<string>(
+            config.Enrichment.DisabledSources.Where(source => !string.IsNullOrWhiteSpace(source)),
             StringComparer.OrdinalIgnoreCase);
     }
 
@@ -55,6 +59,11 @@ public sealed class EnrichmentPolicy : IEnrichmentPolicy
 
     private bool NeedEnrichment(string source, string title, string? hoverText)
     {
+        if (_disabledSources.Contains(source))
+        {
+            return false;
+        }
+
         if (_enabledSources.Contains(source))
         {
             return true;

@@ -157,6 +157,36 @@ public sealed class InfrastructureAdapterTests
     }
 
     [Fact]
+    public async Task ContentIngest_DisabledEnrichmentSourceFallsBackToTitleOnly()
+    {
+        var path = TempDbPath();
+        var config = Config(databasePath: path, disabledSources: ["source-a"]);
+        var factory = new LiteDbConnectionFactory(config);
+        new LiteDbInitializer(config, factory, NullLoggerFactory.Instance).Initialize();
+        var ingest = new ContentIngestService(factory, new EnrichmentPolicy(config), NullLoggerFactory.Instance);
+        var capturedAt = DateTimeOffset.Parse("2026-05-05T08:00:00Z");
+
+        await ingest.IngestAsync("run-1", [new NewsItem
+        {
+            Source = "source-a",
+            Category = "tech",
+            SourceItemId = "item-1",
+            Title = "突发",
+            Url = "https://example.com/1",
+            Rank = 1,
+            SourceListSize = 1,
+            RawPayload = "{}"
+        }], capturedAt, CancellationToken.None);
+
+        using var database = factory.Open();
+        var item = database.GetCollection<ContentItem>(TrendCollectionNames.ContentItem).FindAll().Single();
+        Assert.False(item.NeedEnrichment);
+        Assert.Equal(EnrichmentStatuses.Skipped, item.EnrichmentStatus);
+        Assert.Equal("突发", item.Summary);
+        Assert.Equal(SummarySources.TitleOnly, item.SummarySource);
+    }
+
+    [Fact]
     public async Task EnrichmentService_WritesBackSuccessfulClientResult()
     {
         var path = TempDbPath();
@@ -197,11 +227,11 @@ public sealed class InfrastructureAdapterTests
         Assert.Equal(EnrichmentStatuses.Succeeded, item.EnrichmentStatus);
     }
 
-    private static AppConfig Config(string databasePath = "unused.db", string webExtractUrl = "", string pusherUrl = "", string pusherSecret = "", string pusherCate = "default", string channels = "")
+    private static AppConfig Config(string databasePath = "unused.db", string webExtractUrl = "", string pusherUrl = "", string pusherSecret = "", string pusherCate = "default", string channels = "", List<string>? disabledSources = null)
         => new()
         {
             Database = new DatabaseConfig { Path = databasePath },
-            Enrichment = new EnrichmentConfig { WebExtractUrl = webExtractUrl, MaxRequestsPerRun = 5, RetryCooldownHours = 12 },
+            Enrichment = new EnrichmentConfig { WebExtractUrl = webExtractUrl, DisabledSources = disabledSources ?? [], MaxRequestsPerRun = 5, RetryCooldownHours = 12 },
             System = new SystemConfig { MaxParallelEnrichment = 1 },
             Pushers = string.IsNullOrWhiteSpace(pusherUrl) ? [] : [new PusherConfig { Type = "unipush", Url = pusherUrl, Secret = pusherSecret, Cate = pusherCate, Channels = channels }]
         };

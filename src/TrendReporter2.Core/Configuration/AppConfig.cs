@@ -120,6 +120,8 @@ public sealed class EnrichmentConfig
 
     public List<string> EnabledSources { get; init; } = [];
 
+    public List<string> DisabledSources { get; init; } = [];
+
     public int MaxRequestsPerRun { get; init; } = 5;
 
     public int MinTitleLength { get; init; } = 14;
