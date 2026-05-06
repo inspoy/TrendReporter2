@@ -6,10 +6,11 @@ OpenAI-compatible chat-completions adapters for event clustering and importance 
 ## WHERE TO LOOK
 | Task | Location | Notes |
 |------|----------|-------|
-| Cluster matching | `OpenAiClusterLlmClient.cs` | Determines whether a content item belongs to recalled candidates. |
-| Judge/scoring adjustment | `OpenAiJudgeLlmClient.cs` | Adjusts event importance and labels. |
+| Cluster matching | `ClusterLlmClient.cs` | Determines whether a content item belongs to recalled candidates. |
+| Judge/scoring adjustment | `JudgeLlmClient.cs` | Adjusts event importance and labels. |
 | Contracts/models | `../../TrendReporter2.Core/Events/EventContracts.cs` | `IClusterLlmClient`, `IJudgeLlmClient`, decisions. |
 | Config | `../../TrendReporter2.Core/Configuration/AppConfig.cs` | `llm.cluster`, `llm.judge`, `llm.writer`. |
+| Adapter tests | `../../../tests/TrendReporter2.Tests/InfrastructureAdapterTests.cs` | Fake HTTP handler coverage for LLM adapter behavior. |
 
 ## CONVENTIONS
 - Endpoint is `{baseUrl.TrimEnd('/')}/v1/chat/completions`.
@@ -30,5 +31,6 @@ OpenAI-compatible chat-completions adapters for event clustering and importance 
 ## VALIDATION
 Use config validation for shape. Real LLM behavior needs configured endpoints; unconfigured clients should safely degrade.
 ```bash
+dotnet test TrendReporter2.sln --configuration Release --no-build --disable-build-servers -m:1 --verbosity normal
 dotnet run --project src/TrendReporter2.App/TrendReporter2.App.csproj -- validate --config config.example.yaml
 ```

@@ -10,6 +10,7 @@ Infrastructure implementation for run-level enrichment and WebExtract HTTP calls
 | HTTP adapter | `WebExtractEnrichmentClient.cs` | POST `{baseUrl}/fetch` with `{ url }`. |
 | Core policy | `../../TrendReporter2.Core/Enrichment/EnrichmentPolicy.cs` | Decides `NeedEnrichment`. |
 | Refactor rationale | `../../../prompts/重构计划1.md` | Tavily cost drove generic WebExtract abstraction. |
+| Adapter tests | `../../../tests/TrendReporter2.Tests/InfrastructureAdapterTests.cs` | Fake HTTP handler coverage for adapter behavior. |
 
 ## CONVENTIONS
 - Candidates are current-run content items needing enrichment, not already succeeded, and outside retry cooldown.
@@ -29,5 +30,6 @@ Infrastructure implementation for run-level enrichment and WebExtract HTTP calls
 
 ## VALIDATION
 ```bash
+dotnet test TrendReporter2.sln --configuration Release --no-build --disable-build-servers -m:1 --verbosity normal
 dotnet run --project src/TrendReporter2.App/TrendReporter2.App.csproj -- validate --config config.example.yaml
 ```
