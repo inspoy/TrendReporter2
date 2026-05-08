@@ -67,8 +67,10 @@ public sealed class EventScoringService : IEventScoringService
                 EventBlacklistPolicy.Apply(input.Event, _config.Filters);
                 var score = BuildBaseScore(runId, input, priorSnapshots, runStartedAt, now);
                 var eligibleBeforeJudge = IsEligible(score, input.Event, runStartedAt, now);
+                var reactivated = IsReactivated(input.Event, runStartedAt, now);
+                var hasEnoughSources = score.UniqueSourceCount >= _config.Analysis.Event.SourceCount;
 
-                var judge = eligibleBeforeJudge || IsNearEligibility(score)
+                var judge = reactivated || (hasEnoughSources && (eligibleBeforeJudge || IsNearEligibility(score)))
                     ? await _judgeLlmClient.JudgeAsync(new JudgeRequest(input.Event, score, input.Evidence, score.TriggerReasons), cancellationToken)
                     : JudgeResult.Neutral("事件未达到评判阈值");
 

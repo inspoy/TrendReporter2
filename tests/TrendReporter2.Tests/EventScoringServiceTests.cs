@@ -101,7 +101,47 @@ public sealed class EventScoringServiceTests
         Assert.Empty(pusher.Messages);
     }
 
-    private static AppConfig Config(List<string>? blacklistKeywords = null)
+    [Fact]
+    public async Task ScoreAndPushRunAsync_SkipsJudgeUntilSourceThresholdUnlessReactivated()
+    {
+        var now = DateTimeOffset.Parse("2026-05-05T08:00:00Z");
+        var runStartedAt = now.AddMinutes(-5);
+        var singleSourceJudge = new FakeJudgeLlmClient();
+        var singleSourceRepository = new FakeEventRepository
+        {
+            Inputs = [BuildInput("event-single-source", now.AddHours(-1), BuildEvidence(1))]
+        };
+        var singleSourceService = new EventScoringService(
+            Config(sourceCount: 2),
+            singleSourceRepository,
+            singleSourceJudge,
+            [new FakePusher()],
+            NullLoggerFactory.Instance);
+
+        var singleSourceResult = await singleSourceService.ScoreAndPushRunAsync("run-single-source", runStartedAt, now, CancellationToken.None);
+
+        Assert.Equal(0, singleSourceJudge.CallCount);
+        Assert.Equal(0, singleSourceResult.EligibleEventCount);
+
+        var enoughSourceJudge = new FakeJudgeLlmClient();
+        var enoughSourceRepository = new FakeEventRepository
+        {
+            Inputs = [BuildInput("event-enough-source", now.AddHours(-1), BuildEvidence(2))]
+        };
+        var enoughSourceService = new EventScoringService(
+            Config(sourceCount: 2),
+            enoughSourceRepository,
+            enoughSourceJudge,
+            [new FakePusher()],
+            NullLoggerFactory.Instance);
+
+        var enoughSourceResult = await enoughSourceService.ScoreAndPushRunAsync("run-enough-source", runStartedAt, now, CancellationToken.None);
+
+        Assert.Equal(1, enoughSourceJudge.CallCount);
+        Assert.Equal(1, enoughSourceResult.EligibleEventCount);
+    }
+
+    private static AppConfig Config(List<string>? blacklistKeywords = null, int sourceCount = 3)
         => new()
         {
             Analysis = new AnalysisConfig
@@ -109,7 +149,7 @@ public sealed class EventScoringServiceTests
                 HistoryHours = 24,
                 Event = new EventAnalysisConfig
                 {
-                    SourceCount = 3,
+                    SourceCount = sourceCount,
                     NormalizedRankThreshold = 0.7,
                     TrendWindowHours = 6,
                     MinTrendSamples = 3,
@@ -183,7 +223,12 @@ public sealed class EventScoringServiceTests
     private sealed class FakeJudgeLlmClient : IJudgeLlmClient
     {
         public bool IsConfigured => false;
-        public Task<JudgeResult> JudgeAsync(JudgeRequest request, CancellationToken cancellationToken) => Task.FromResult(JudgeResult.Neutral("test"));
+        public int CallCount { get; private set; }
+        public Task<JudgeResult> JudgeAsync(JudgeRequest request, CancellationToken cancellationToken)
+        {
+            CallCount++;
+            return Task.FromResult(JudgeResult.Neutral("test"));
+        }
     }
 
     private sealed class FakePusher : IPusher
