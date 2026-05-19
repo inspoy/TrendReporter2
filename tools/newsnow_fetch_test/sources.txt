@@ -3,36 +3,36 @@
 # Example: ifeng # 凤凰网
 
 # china
-zhihu # hot
-toutiao # hot
-thepaper # hot 澎湃
-baidu # hot
-ifeng # hot
-tencent-hot # hot
+zhihu # hot - good, hover
+toutiao # hot - bad, title
+thepaper # hot 澎湃 - ok, webfetch
+baidu # hot - good, hover
+ifeng # hot - ok, webfetch
+tencent-hot # hot - good, hover
 
 # tech
-v2ex # latest
-ithome # latest
-solidot # latest
-hackernews # hot
-sspai # hot
-juejin # hot
+v2ex # latest - bad, title
+ithome # latest - ok, webfetch
+solidot # latest - ok, webfetch
+hackernews # hot - bad, nocrawl
+sspai # hot - ok, webfetch
+juejin # hot - ok, webfetch
 
 # world
-zaobao # latest
-sputniknewscn # latest
-cankaoxiaoxi # latest
+zaobao # latest - ok, webfetch
+sputniknewscn # latest - ok, webfetch
+cankaoxiaoxi # latest - ok, webfetch
 
 # finance
-wallstreetcn-hot # hot
-cls-hot # hot
-jin10 # latest
-wallstreetcn-quick # latest
+wallstreetcn-hot # hot - ok, webfetch
+cls-hot # hot - ok, webfetch
+jin10 # latest - ok, webfetch
+wallstreetcn-quick # latest - ok, longtitle
 
 # social
-weibo # hot
-douyin # hot
-kuaishou # hot
-tieba # hot
-hupu # hot
-bilibili-hot-search # hot
+weibo # hot - bad, nocrawl
+douyin # hot - bad, nocrawl
+kuaishou # hot - bad, nocrawl
+tieba # hot - ok, webfetch
+hupu # hot - ok, webfetch
+bilibili-hot-search # hot - bad, nocrawl
