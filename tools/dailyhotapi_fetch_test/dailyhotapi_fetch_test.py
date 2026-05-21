@@ -143,6 +143,10 @@ def load_sources(path: str) -> list[str]:
             value = line.split("#", 1)[0].strip()
             if not value or value.startswith("#"):
                 continue
+            # Strip inline description after " - " (e.g. "36kr - 科技向新闻热榜" → "36kr")
+            value = value.split(" - ", 1)[0].strip()
+            if not value:
+                continue
             sources.append(value)
     return sources
 

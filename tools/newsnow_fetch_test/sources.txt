@@ -4,17 +4,14 @@
 
 # china
 zhihu # hot - good, hover
-toutiao # hot - bad, title
 thepaper # hot 澎湃 - ok, webfetch
 baidu # hot - good, hover
 ifeng # hot - ok, webfetch
 tencent-hot # hot - good, hover
 
 # tech
-v2ex # latest - bad, title
 ithome # latest - ok, webfetch
 solidot # latest - ok, webfetch
-hackernews # hot - bad, nocrawl
 sspai # hot - ok, webfetch
 juejin # hot - ok, webfetch
 
@@ -30,9 +27,14 @@ jin10 # latest - ok, webfetch
 wallstreetcn-quick # latest - ok, longtitle
 
 # social
-weibo # hot - bad, nocrawl
-douyin # hot - bad, nocrawl
-kuaishou # hot - bad, nocrawl
 tieba # hot - ok, webfetch
 hupu # hot - ok, webfetch
-bilibili-hot-search # hot - bad, nocrawl
+
+# Bad Sources
+# weibo # hot - bad, nocrawl
+# douyin # hot - bad, nocrawl
+# kuaishou # hot - bad, nocrawl
+# bilibili-hot-search # hot - bad, nocrawl
+# toutiao # hot - bad, title
+# v2ex # latest - bad, title
+# hackernews # hot - bad, nocrawl

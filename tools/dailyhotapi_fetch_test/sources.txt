@@ -2,59 +2,60 @@
 # 一行一条DailyHotApi的source，空行、#开头的行和行尾#注释会被忽略
 # Example: weibo # 微博热搜
 
-36kr
-51cto
-52pojie
-acfun
-baidu
-bilibili
-coolapk
-csdn
-dgtle
-douban-group
-douban-movie
-douyin
-earthquake
-gameres
-geekpark
-genshin
-github
-guokr
-hackernews
-hellogithub
-history
-honkai
-hostloc
-hupu
-huxiu
-ifanr
-ithome-xijiayi
-ithome
-jianshu
-juejin
-kuaishou
-linuxdo
-lol
-miyoushe
-netease-news
-newsmth
-ngabbs
-nodeseek
-nytimes
-producthunt
-qq-news
-sina-news
-sina
-smzdm
-sspai
-starrail
-thepaper
-tieba
-toutiao
-v2ex
-weatheralarm
-weibo
-weread
-yystv
-zhihu-daily
-zhihu
+36kr # 科技向新闻热榜
+51cto # 社会话题，技术向
+baidu # 国内新闻热榜
+dgtle # 数码资讯，但是标题和描述会被截断
+douban-group # 豆瓣小组，生活类热榜
+geekpark # 科技类新闻热榜
+github # Github趋势日榜
+hackernews # 科技新闻，还是比较有价值的，只不过是英文
+hellogithub # 中文GitHub热榜
+huxiu # 综合新闻快讯
+ifanr # 科技快讯，主要是产品发布信息
+ithome # 科技新闻热榜
+juejin # 科技类话题
+netease-news # 网易新闻快讯
+newsmth # 社会话题热榜
+nytimes # 国际新闻快讯，大媒体，不过必须指定type=global
+qq-news # 综合新闻
+sina-news # 综合新闻
+sina # 社会话题热榜
+thepaper # 国内新闻热榜，大媒体
+tieba # 社会话题的热榜
+toutiao # 综合新闻热榜，但summary获取有一定门槛，需要先获取`document.querySelector("a.title").href`的链接，如果是video就失败，如果是article再爬取对应网页
+yystv # 游戏向新闻热榜
+zhihu # 综合新闻热榜，价值高
+
+# douban-movie # 电影榜，和项目无关
+# douyin # 抖音热榜，只有短标题
+# guokr # 社会话题，感觉大多比较无聊
+# history # 历史上的今天，和新闻无关
+# hupu # 没什么营养的社会话题
+# ithome-xijiayi # 喜加一，不是新闻
+# kuaishou # 和抖音类似，只有标题
+# linuxdo # 和v2ex类似，而且里面有很多中转站推广
+# ngabbs # 没啥有营养的话题
+# nodeseek # VPS社区，没啥用
+# smzdm # 导购资讯，不是新闻
+# 52pojie - 无效渠道
+# coolapk - 无效渠道
+# earthquake - 无效渠道
+# gameres - 无效渠道
+# hostloc - 无效渠道
+# producthunt - 无效渠道
+# acfun - 标题比较抽象，不好做新闻整理
+# bilibili - 标题比较抽象，不好做新闻整理
+# csdn - 技术文章，不是新闻
+# genshin - 不感兴趣的游戏社区
+# honkai - 不感兴趣的游戏社区
+# jianshu # 内容太少了
+# lol - 不感兴趣的游戏社区
+# miyoushe - 不感兴趣的游戏社区
+# sspai - 汇总/盘点类文章为主，而且偏生活分享，而非新闻
+# starrail - 不感兴趣的游戏社区
+# v2ex - 本来就会天天刷，不用再推了，而且最近中转站的广告很多
+# weatheralarm - 气象预警，和项目需求不匹配
+# weibo - 只能获取到标题，没啥有营养的信息
+# weread - 热门图书，和项目需求不匹配
+# zhihu-daily - 内容太少了，不是热榜也不是实时
