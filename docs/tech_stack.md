@@ -63,9 +63,9 @@ src/TrendReporter2.Core/
 - `Configuration/TimeZoneResolver.cs`
   统一解析时区，并兼容 Windows 上的 `Asia/Shanghai`。
 - `Jobs/IFetchJob.cs`
-  一轮抓取任务接口；业务流程已存在，但 PostgreSQL 仓储主路径仍等待 M1 接入。
+  一轮抓取任务接口；业务流程已存在，但 PostgreSQL 仓储主路径仍等待 V2M1 接入。
 - `Jobs/IDigestJob.cs`
-  摘要任务接口；摘要业务流程已存在，但 PostgreSQL 状态和推送日志仓储仍等待 M1 接入。
+  摘要任务接口；摘要业务流程已存在，但 PostgreSQL 状态和推送日志仓储仍等待 V2M1 接入。
 - `Persistence/ITrendDatabaseInitializer.cs`
   旧 LiteDB 初始化接口，V2 默认 DI 不再注册。
 - `Persistence/TrendCollectionNames.cs`
@@ -96,11 +96,11 @@ src/TrendReporter2.Infrastructure/
   使用 `YamlDotNet` 读取 YAML，并反序列化为 `AppConfig`。
 - `Persistence/LiteDbInitializer.cs`
 - `Persistence/SqlMigrationRunner.cs`
-  执行 PostgreSQL M0 启动迁移并维护 `schema_migration`。
+  执行 PostgreSQL V2M0 启动迁移并维护 `schema_migration`。
 - `Persistence/Migrations/0001_init.sql`
-  创建 M1 主链路需要的 PostgreSQL 表结构。
+  创建 V2M1 主链路需要的 PostgreSQL 表结构。
 - `Persistence/LiteDb*Repository.cs`
-  过渡期 LiteDB 适配器源码仍保留以便编译和既有测试，但 V2 默认运行路径不会回退到 LiteDB；M1 会替换为 PostgreSQL 仓储。
+  过渡期 LiteDB 适配器源码仍保留以便编译和既有测试，但 V2 默认运行路径不会回退到 LiteDB；V2M1 会替换为 PostgreSQL 仓储。
 - `DependencyInjection.cs`
   集中注册 Infrastructure 层服务，包括 `NpgsqlDataSource`、迁移 runner、HTTP/LLM/推送相关适配和过渡期仓储接口。
 
@@ -142,9 +142,9 @@ src/TrendReporter2.App/
 - `Scheduling/DigestSchedulerService.cs`
   摘要调度器。每分钟检查当前本地时间是否命中 `analysis.push.pushTime`。
 - `Scheduling/FetchJob.cs`
-  抓取、增强、事件归并、评分和即时推送编排；M0 阶段因 PostgreSQL 仓储未完成而不会进入运行主路径。
+  抓取、增强、事件归并、评分和即时推送编排；V2M0 阶段因 PostgreSQL 仓储未完成而不会进入运行主路径。
 - `Scheduling/DigestJob.cs`
-  定时摘要候选过滤、消息组装、推送和状态标记编排；M0 阶段因 PostgreSQL 仓储未完成而不会进入运行主路径。
+  定时摘要候选过滤、消息组装、推送和状态标记编排；V2M0 阶段因 PostgreSQL 仓储未完成而不会进入运行主路径。
 
 当前引入的基础依赖：
 
@@ -177,13 +177,13 @@ config.example.yaml
 dotnet run --project src\TrendReporter2.App\TrendReporter2.App.csproj -- --config config.example.yaml
 ```
 
-M0 中 `config.example.yaml` 已整理为可解析 YAML，并将 `newsNow.baseUrl` 设为 `http://localhost:3000`，方便通过配置校验。实际部署时应复制为 `config.yaml` 后按本机环境修改。
+V1 中 `config.example.yaml` 已整理为可解析 YAML，并将 `newsNow.baseUrl` 设为 `http://localhost:3000`，方便通过配置校验。实际部署时应复制为 `config.yaml` 后按本机环境修改。
 
 ## 4. 数据库
 
 当前使用 PostgreSQL 作为基础数据库，示例配置提供本地占位连接串和启动迁移开关。
 
-M0 只保证 PostgreSQL provider、`NpgsqlDataSource` 和迁移脚本；迁移会创建 M1 主链路需要的表结构。抓取、事件、评分、推送日志和摘要状态的 PostgreSQL 仓储将在 M1 实现，完成前非 `validate` 模式会快速提示 M0/M1 限制并退出，不会写入 PostgreSQL 主链路，也不会回退到本地 `data/trend.db`。
+V2M0 只保证 PostgreSQL provider、`NpgsqlDataSource` 和迁移脚本；迁移会创建 V2M1 主链路需要的表结构。抓取、事件、评分、推送日志和摘要状态的 PostgreSQL 仓储将在 V2M1 实现，完成前非 `validate` 模式会快速提示 V2M0/V2M1 限制并退出，不会写入 PostgreSQL 主链路，也不会回退到本地 `data/trend.db`。
 
 ## 5. 常用命令
 
@@ -216,34 +216,36 @@ dotnet run --project src\TrendReporter2.App\TrendReporter2.App.csproj
 - 当前环境中普通 solution build 可能受到 C# shared compiler 或并行构建限制影响。
 - 因此推荐使用 `-m:1 /p:UseSharedCompilation=false` 进行稳定构建。
 
-## 6. 后续里程碑代码落点
+## 6. V1 已完成能力代码落点
 
-M1 新闻抓取与原始入库：
+以下代码落点对应 V1M1-V1M5 已实现的主链路能力。V2 会在保留这些业务资产的前提下，把运行期持久化主路径迁移到 PostgreSQL。
 
-- `Core`：继续维护 `NewsItem`、`ContentItem`、`ContentSnapshot`、`FetchRun` 等模型和仓储接口。
-- `Infrastructure`：实现抓取、事件、评分、推送日志和摘要状态所需的 PostgreSQL 仓储。
-- `App`：移除 M0 运行期仓储限制，让现有 `FetchJob`/`DigestJob` 进入 PostgreSQL 主路径。
+V1M1 新闻抓取与原始入库：
 
-M2 正文增强：
+- `Core`：维护 `NewsItem`、`ContentItem`、`ContentSnapshot`、`FetchRun` 等模型和仓储接口。
+- `Infrastructure`：维护 NewsNow 抓取客户端、内容入库服务和现有过渡期持久化适配器。
+- `App`：通过 `FetchJob`/`FetchSchedulerService` 编排抓取与入库流程。
+
+V1M2 正文增强：
 
 - `Core`：维护增强结果、增强判定服务接口和弱标题策略。
-- `Infrastructure`：维护 WebExtract 增强客户端。
+- `Infrastructure`：维护 WebExtract 增强客户端和增强服务实现。
 - `App`：在抓取链路中编排增强服务。
 
-M3 事件建模与归并：
+V1M3 事件建模与归并：
 
 - `Core`：维护事件领域模型、候选召回接口、归并接口和匹配规则。
-- `Infrastructure`：维护 LLM cluster 客户端；PostgreSQL 事件仓储实现仍属 M1 补齐范围。
+- `Infrastructure`：维护 LLM cluster 客户端和事件持久化适配器。
 - `App`：在抓取链路中编排事件匹配流程。
 
-M4 评分与即时推送：
+V1M4 评分与即时推送：
 
 - `Core`：维护评分模型、评分规则、推送判定接口和黑名单策略。
-- `Infrastructure`：维护 Judge LLM 客户端和 Unipush 推送器；PostgreSQL `push_log` 仓储仍属 M1 补齐范围。
+- `Infrastructure`：维护 Judge LLM 客户端、Unipush 推送器和 `push_log` 持久化适配器。
 - `App`：在抓取链路末尾编排评分与即时推送。
 
-M5 定时摘要与黑名单：
+V1M5 定时摘要与黑名单：
 
 - `Core`：维护摘要查询、黑名单判定和摘要消息模型。
-- `Infrastructure`：补充 PostgreSQL 摘要相关仓储查询。
-- `App`：现有 `DigestJob` 在 M1 仓储完成后进入真实摘要运行路径。
+- `Infrastructure`：维护摘要候选、状态和推送日志相关持久化适配器。
+- `App`：通过 `DigestJob`/`DigestSchedulerService` 编排摘要候选过滤、消息组装、推送和状态标记。

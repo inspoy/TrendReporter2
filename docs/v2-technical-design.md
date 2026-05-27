@@ -246,7 +246,7 @@ sources:
         weight: 1.0
 ```
 
-兼容策略：V2 可以在 M0 或 M3 中提供一次性配置改造，把旧 `newsNow.sources` 映射成 source registry 输入，但不提供长期双配置模式。
+兼容策略：V2 可以在 V2M0 或 V2M3 中提供一次性配置改造，把旧 `newsNow.sources` 映射成 source registry 输入，但不提供长期双配置模式。
 
 ### 6.3 LLM 和 embedding 配置
 
@@ -321,7 +321,7 @@ src/TrendReporter2.Infrastructure/Persistence/Migrations/
 1. 启动时如 `migrateOnStartup = true`，先执行 migrations。
 2. 每个 migration 在事务中执行。
 3. 已执行版本 checksum 不一致时直接失败。
-4. 第一版 migration 必须包含 `CREATE EXTENSION IF NOT EXISTS vector;`，用于提前验证本地和部署环境支持 pgvector。若目标环境暂时不能启用扩展，必须在 M0 明确记录为阻塞项，而不是在 M5 才发现。
+4. 第一版 migration 必须包含 `CREATE EXTENSION IF NOT EXISTS vector;`，用于提前验证本地和部署环境支持 pgvector。若目标环境暂时不能启用扩展，必须在 V2M0 明确记录为阻塞项，而不是在 V2M5 才发现。
 5. pgvector HNSW 索引只在 embedding dimensions 固定后创建。
 
 ## 8. Schema 设计
@@ -1118,7 +1118,7 @@ secondary-merge-once [--config path]
 
 ### 21.2 缓解策略
 
-1. M1 只迁核心主链路表，tag、embedding、merge 可通过后续 migration 增加。
+1. V2M1 只迁核心主链路表，tag、embedding、merge 可通过后续 migration 增加。
 2. Source capability 先只实现 `ranked_news` 和 `flash_feed`，topic 先入库展示。
 3. `event_score_snapshot` 中保留 `rank_score` 和 `flash_score`，便于调参。
 4. LLM usage 通过统一 wrapper 记录，避免每个 client 复制逻辑。
@@ -1132,7 +1132,7 @@ secondary-merge-once [--config path]
 2. migration runner 自研到什么程度，是否后续换成成熟工具。
 3. DailyHotApi 使用公共实例还是自部署实例。
 4. flash source 默认时间窗口和半衰期。
-5. Source weight 是否在 M3 就参与评分。
+5. Source weight 是否在 V2M3 就参与评分。
 6. tag taxonomy 是否需要种子配置。
 7. embedding 模型和维度最终选择。
 8. 静态报告的访问方式是本地文件、Nginx 静态目录，还是对象存储。

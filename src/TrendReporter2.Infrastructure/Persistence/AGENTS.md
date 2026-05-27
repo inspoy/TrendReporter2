@@ -1,14 +1,14 @@
 # PERSISTENCE KNOWLEDGE BASE
 
 ## OVERVIEW
-Persistence boundary. M0 owns PostgreSQL migrations and startup migration execution while retaining transitional LiteDB adapters for tests and pre-M1 repository code.
+Persistence boundary. V2M0 owns PostgreSQL migrations and startup migration execution while retaining transitional LiteDB adapters for tests and pre-V2M1 repository code.
 
 ## WHERE TO LOOK
 | Task | Location | Notes |
 |------|----------|-------|
 | PostgreSQL migrations | `SqlMigrationRunner.cs`, `Migrations/*.sql` | Discovers SQL files, verifies checksums, and applies startup migrations. |
 | Legacy LiteDB indexes | `LiteDbInitializer.cs` | Transitional adapter only; do not register as the V2 default initializer. |
-| Content ingest | `ContentIngestService.cs` | Transitional LiteDB-backed adapter until M1 PostgreSQL repositories replace it. |
+| Content ingest | `ContentIngestService.cs` | Transitional LiteDB-backed adapter until V2M1 PostgreSQL repositories replace it. |
 | Event persistence | `LiteDbEventRepository.cs` | Event mappings, stale marking, scoring inputs, digest candidates, push logs. |
 | App state persistence | `LiteDbAppStateRepository.cs` | `AppState` get/upsert by unique key. |
 | Fetch run persistence | `FetchRunRepository.cs` | `fr:` ID format and run status updates. |

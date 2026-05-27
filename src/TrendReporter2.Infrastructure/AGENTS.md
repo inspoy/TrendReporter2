@@ -21,9 +21,9 @@ TrendReporter2.Infrastructure/
 | Register implementation | `DependencyInjection.cs` | Add singleton mappings behind Core contracts. |
 | YAML loading | `Configuration/YamlAppConfigLoader.cs` | CamelCase, ignores unknown properties, rewrites legacy key. |
 | SQL migrations | `Persistence/Migrations/` and `Persistence/SqlMigrationRunner.cs` | PostgreSQL schema setup and migration execution. |
-| Content persistence | `Persistence/ContentIngestService.cs` | Transitional adapter until M1 PostgreSQL repositories replace LiteDB writes. |
-| Event persistence | `Persistence/LiteDbEventRepository.cs` | Transitional adapter until M1 PostgreSQL repositories replace LiteDB writes. |
-| App state persistence | `Persistence/LiteDbAppStateRepository.cs` | Transitional adapter until M1 PostgreSQL repositories replace LiteDB writes. |
+| Content persistence | `Persistence/ContentIngestService.cs` | Transitional adapter until V2M1 PostgreSQL repositories replace LiteDB writes. |
+| Event persistence | `Persistence/LiteDbEventRepository.cs` | Transitional adapter until V2M1 PostgreSQL repositories replace LiteDB writes. |
+| App state persistence | `Persistence/LiteDbAppStateRepository.cs` | Transitional adapter until V2M1 PostgreSQL repositories replace LiteDB writes. |
 | LLM calls | `Llm/ClusterLlmClient.cs`, `Llm/JudgeLlmClient.cs` | OpenAI chat completions, JSON object responses. |
 | News fetch | `News/NewsNowClient.cs` | Accepts `success` and `cache` statuses. |
 

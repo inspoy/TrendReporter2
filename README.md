@@ -9,13 +9,13 @@ TrendReporter2 的目标不是新闻阅读器，而是事件级趋势发现与�
 项目使用 .NET 8 构建，当前代码已具备以下能力：
 
 - 读取并校验 YAML 配置。
-- 初始化 PostgreSQL 数据库连接与 M0 基础迁移，创建后续 M1 主链路需要的表结构。
-- NewsNow 抓取、事件归并、评分和摘要链路的业务代码已保留；对应 PostgreSQL 仓储仍在 M1 实现，当前非 `validate` 运行模式会快速退出并提示该限制。
+- 初始化 PostgreSQL 数据库连接与 V2M0 基础迁移，创建后续 V2M1 主链路需要的表结构。
+- NewsNow 抓取、事件归并、评分和摘要链路的业务代码已保留；对应 PostgreSQL 仓储仍在 V2M1 实现，当前非 `validate` 运行模式会快速退出并提示该限制。
 - 对需要补充上下文的新闻调用配置的网页抽取服务，写回摘要与增强状态。
 - 基于规则召回候选事件，并可通过 OpenAI 兼容的 Cluster LLM 辅助事件归并。
-- 支持配置校验；后台调度、单次抓取和单次摘要命令名保留，但需等待 M1 PostgreSQL 仓储接入后才可执行主链路。
+- 支持配置校验；后台调度、单次抓取和单次摘要命令名保留，但需等待 V2M1 PostgreSQL 仓储接入后才可执行主链路。
 
-根据 [里程碑文档](docs/milestones.md)，M0-M6 的最小主链路与稳定性补齐已具备：事件评分、即时推送、定时摘要、黑名单降噪、基础测试和回归样本已落地。
+根据 [V1 里程碑文档](docs/v1-milestones.md)，V1M0-V1M6 的最小主链路与稳定性补齐已具备：事件评分、即时推送、定时摘要、黑名单降噪、基础测试和回归样本已落地。
 
 ## 核心功能设计
 
@@ -114,7 +114,7 @@ dotnet run --project src/TrendReporter2.App/TrendReporter2.App.csproj -- validat
 
 ### 5. 执行一次抓取
 
-M0 当前仅完成 PostgreSQL 连接和迁移基础，`fetch-once` 会在启动迁移后提示 PostgreSQL 仓储将在 M1 实现，并以非零状态退出；不会回退到 LiteDB。
+V2M0 当前仅完成 PostgreSQL 连接和迁移基础，`fetch-once` 会在启动迁移后提示 PostgreSQL 仓储将在 V2M1 实现，并以非零状态退出；不会回退到 LiteDB。
 
 ```bash
 dotnet run --project src/TrendReporter2.App/TrendReporter2.App.csproj -- fetch-once
@@ -122,17 +122,17 @@ dotnet run --project src/TrendReporter2.App/TrendReporter2.App.csproj -- fetch-o
 
 ### 6. 启动后台服务
 
-后台服务同样会在 M0 阶段快速退出，等待 M1 接入抓取、事件、评分、推送和摘要所需的 PostgreSQL 仓储。
+后台服务同样会在 V2M0 阶段快速退出，等待 V2M1 接入抓取、事件、评分、推送和摘要所需的 PostgreSQL 仓储。
 
 ```bash
 dotnet run --project src/TrendReporter2.App/TrendReporter2.App.csproj
 ```
 
-M1 仓储完成后，后台服务启动会立即执行一轮抓取，之后按 `analysis.fetchInterval` 周期运行。摘要调度器会按 `analysis.push.pushTime` 触发摘要任务，并通过 `app_state` 和 `push_log` 控制同一时段幂等。
+V2M1 仓储完成后，后台服务启动会立即执行一轮抓取，之后按 `analysis.fetchInterval` 周期运行。摘要调度器会按 `analysis.push.pushTime` 触发摘要任务，并通过 `app_state` 和 `push_log` 控制同一时段幂等。
 
 执行一次摘要：
 
-M0 阶段 `digest-once` 与 `fetch-once` 一样会快速提示仓储尚未实现。
+V2M0 阶段 `digest-once` 与 `fetch-once` 一样会快速提示仓储尚未实现。
 
 ```bash
 dotnet run --project src/TrendReporter2.App/TrendReporter2.App.csproj -- digest-once
@@ -170,7 +170,7 @@ python newsnow_fetch_test.py
 
 ## 数据库
 
-V1使用 LiteDB 作为数据库，但V2M0 已切换为 PostgreSQL 基础配置和启动迁移，数据库结构由迁移脚本创建。抓取、事件、评分、推送日志和摘要状态的 PostgreSQL 仓储仍属 V2M1 范围；在这些仓储完成前，运行期主链路不会写入 PostgreSQL，也不会回退到 LiteDB。`config.example.yaml` 里的连接串仅是本地占位值，不包含真实凭据。
+V1 使用 LiteDB 作为数据库，但 V2M0 已切换为 PostgreSQL 基础配置和启动迁移，数据库结构由迁移脚本创建。抓取、事件、评分、推送日志和摘要状态的 PostgreSQL 仓储仍属 V2M1 范围；在这些仓储完成前，运行期主链路不会写入 PostgreSQL，也不会回退到 LiteDB。`config.example.yaml` 里的连接串仅是本地占位值，不包含真实凭据。
 
 ## 测试与验证
 
@@ -189,9 +189,12 @@ dotnet run --project src/TrendReporter2.App/TrendReporter2.App.csproj -- validat
 ## 详细文档
 
 - [V1 产品设计稿](docs/v1-design.md)
-- [V1 技术设计稿](docs/technical-design.md)
+- [V1 技术设计稿](docs/v1-technical-design.md)
+- [V1 里程碑与任务清单](docs/v1-milestones.md)
+- [V2 产品设计稿](docs/v2-design.md)
+- [V2 技术设计稿](docs/v2-technical-design.md)
+- [V2 里程碑与任务清单](docs/v2-milestones.md)
 - [C# 工程结构说明](docs/tech_stack.md)
-- [V1 里程碑与任务清单](docs/milestones.md)
 - [运行说明](docs/running.md)
 - [即时推送中的 Score 与 Heat](docs/scoring-and-heat.md)
 - [测试与回归说明](docs/testing.md)

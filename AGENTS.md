@@ -65,8 +65,8 @@ Tests -> App/Core/Infrastructure
 | `EventBlacklistPolicy` | policy | `Core/Events/EventBlacklistPolicy.cs` | Applies configured blacklist keywords to events. |
 | `IEventRepository` | contract | `Core/Events/EventContracts.cs` | Event, score, push-log, digest candidate persistence boundary. |
 | `IAppStateRepository` | contract | `Core/Events/EventContracts.cs` | App state persistence boundary for digest idempotency. |
-| `LiteDbEventRepository` | repository | `Infrastructure/Persistence/LiteDbEventRepository.cs` | Transitional LiteDB adapter for event, score, and push-log persistence until M1 PostgreSQL repositories replace it. |
-| `LiteDbAppStateRepository` | repository | `Infrastructure/Persistence/LiteDbAppStateRepository.cs` | Transitional LiteDB adapter for `app_state` get/upsert until M1 PostgreSQL repositories replace it. |
+| `LiteDbEventRepository` | repository | `Infrastructure/Persistence/LiteDbEventRepository.cs` | Transitional LiteDB adapter for event, score, and push-log persistence until V2M1 PostgreSQL repositories replace it. |
+| `LiteDbAppStateRepository` | repository | `Infrastructure/Persistence/LiteDbAppStateRepository.cs` | Transitional LiteDB adapter for `app_state` get/upsert until V2M1 PostgreSQL repositories replace it. |
 | `ClusterLlmClient` | adapter | `Infrastructure/Llm/ClusterLlmClient.cs` | Event-cluster LLM decision adapter. |
 | `JudgeLlmClient` | adapter | `Infrastructure/Llm/JudgeLlmClient.cs` | Event importance judge LLM adapter. |
 
@@ -93,7 +93,7 @@ Tests -> App/Core/Infrastructure
 - Build docs intentionally disable shared compilation/parallelism for stability.
 - `Program.cs` loads config before host construction, then either runs one-shot modes or starts Generic Host.
 - `tools/newsnow_fetch_test/` is standalone Python: use venv + `requirements.txt`; keep local `.env` and `.venv/` ignored.
-- M0-M6 are complete; scheduled digest is implemented by `DigestJob` and `DigestSchedulerService`.
+- V1M0-V1M6 are complete; scheduled digest is implemented by `DigestJob` and `DigestSchedulerService`.
 
 ## COMMANDS
 ```bash
