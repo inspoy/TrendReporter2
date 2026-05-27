@@ -17,12 +17,12 @@ Core enrichment contracts and policy. Decides which weak news/content items need
 - Policy works for both `NewsItem` before ingest and `ContentItem` after persistence.
 - Enabled sources always enrich; otherwise complete hover text can skip enrichment.
 - Title weakness uses Unicode-aware text length and CJK/entity-like subject detection.
-- Summary source/status strings persist to LiteDB; use constants rather than literals.
+- Summary source/status strings persist across repository boundaries; use constants rather than literals.
 - `OnlyWhenRecallWeak` exists in config but is not currently wired into recall flow.
 
 ## ANTI-PATTERNS
 - Do not reintroduce Tavily-specific names into Core; current abstraction is generic enrichment/WebExtract.
-- Do not put HTTP parsing or LiteDB writes in Core enrichment contracts/policy.
+- Do not put HTTP parsing or database writes in Core enrichment contracts/policy.
 - Do not add new persisted statuses or summary sources without constants and persistence review.
 
 ## NOTES

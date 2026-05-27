@@ -1,14 +1,11 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using TrendReporter2.App.DataView;
-using TrendReporter2.App.Scheduling;
 using TrendReporter2.Core.Configuration;
 using TrendReporter2.Core.Enrichment;
 using TrendReporter2.Core.Events;
 using TrendReporter2.Core.Jobs;
 using TrendReporter2.Core.News;
-using TrendReporter2.Core.Persistence;
 using TrendReporter2.Infrastructure;
 using TrendReporter2.Infrastructure.Enrichment;
 using TrendReporter2.Infrastructure.Configuration;
@@ -33,18 +30,9 @@ catch (Exception ex) when (ex is ArgumentException or FileNotFoundException or A
     return;
 }
 
-if (options.Mode == CliMode.DataView)
+if (options.ValidateOnly)
 {
-    try
-    {
-        ExecuteDataView(config, options.DataView ?? throw new InvalidOperationException("data-view 选项未被正确解析。"));
-    }
-    catch (Exception ex) when (ex is ArgumentException or FileNotFoundException or InvalidOperationException or LiteDB.LiteException)
-    {
-        Console.Error.WriteLine(ex.Message);
-        Environment.ExitCode = 1;
-    }
-
+    Console.WriteLine("配置验证成功。");
     return;
 }
 
@@ -66,24 +54,20 @@ builder.Services.AddHttpClient<IEnrichmentClient, WebExtractEnrichmentClient>();
 builder.Services.AddHttpClient<IClusterLlmClient, ClusterLlmClient>();
 builder.Services.AddHttpClient<IJudgeLlmClient, JudgeLlmClient>();
 builder.Services.AddHttpClient<IPusher, UnipushPusher>();
-builder.Services.AddSingleton<IFetchJob, FetchJob>();
-builder.Services.AddSingleton<IDigestJob, DigestJob>();
-
-if (!options.ValidateOnly && !options.FetchOnce && !options.DigestOnce)
-{
-    builder.Services.AddHostedService<FetchSchedulerService>();
-    builder.Services.AddHostedService<DigestSchedulerService>();
-}
 
 using var host = builder.Build();
 var logger = host.Services.GetRequiredService<ILoggerFactory>().CreateLogger("TrendReporter2.App");
 
 LogConfigSummary(logger, config, options);
-host.Services.GetRequiredService<ITrendDatabaseInitializer>().Initialize();
-
-if (options.ValidateOnly)
+if (!await TryRunStartupMigrationsAsync(host.Services, config, logger, Console.Error, CancellationToken.None))
 {
-    logger.LogInformation("验证模式已成功完成。");
+    Environment.ExitCode = 1;
+    return;
+}
+
+if (!TryEnsureRuntimeRepositoriesImplemented(logger, Console.Error))
+{
+    Environment.ExitCode = 1;
     return;
 }
 
@@ -108,7 +92,35 @@ if (options.DigestOnce)
 }
 
 logger.LogInformation("TrendReporter2 后台服务启动中。");
-await host.RunAsync();
+    await host.RunAsync();
+
+static async Task<bool> TryRunStartupMigrationsAsync(
+    IServiceProvider services,
+    AppConfig config,
+    ILogger logger,
+    TextWriter errorWriter,
+    CancellationToken cancellationToken)
+{
+    try
+    {
+        await StartupMigration.RunIfEnabledAsync(services, config, logger, cancellationToken);
+        return true;
+    }
+    catch (Exception ex) when (ex is not OperationCanceledException)
+    {
+        logger.LogCritical(ex, "PostgreSQL 启动迁移失败，程序将退出。");
+        errorWriter.WriteLine($"PostgreSQL 启动迁移失败：{ex.Message}");
+        return false;
+    }
+}
+
+static bool TryEnsureRuntimeRepositoriesImplemented(ILogger logger, TextWriter errorWriter)
+{
+    const string message = "M0 PostgreSQL 基础迁移已就绪，但抓取/后台/摘要所需的 PostgreSQL 仓储将在 M1 实现；当前非 validate 运行模式暂不可用。";
+    logger.LogCritical(message);
+    errorWriter.WriteLine(message);
+    return false;
+}
 
 static void LogConfigSummary(ILogger logger, AppConfig config, CliOptions options)
 {
@@ -122,15 +134,7 @@ static void LogConfigSummary(ILogger logger, AppConfig config, CliOptions option
         config.Analysis.FetchInterval);
 }
 
-static void ExecuteDataView(AppConfig config, DataViewOptions options)
-{
-    var reader = new DataViewReader(config, new LiteDbConnectionFactory(config));
-    var result = reader.Read(options.Collection, options.Limit);
-    var output = options.Json ? DataViewRenderer.RenderJson(result) : DataViewRenderer.RenderTable(result);
-    Console.WriteLine(output);
-}
-
-internal sealed record CliOptions(string ConfigPath, CliMode Mode, DataViewOptions? DataView)
+internal sealed record CliOptions(string ConfigPath, CliMode Mode)
 {
     public bool ValidateOnly => Mode == CliMode.Validate;
 
@@ -142,55 +146,16 @@ internal sealed record CliOptions(string ConfigPath, CliMode Mode, DataViewOptio
     {
         var configPath = "config.yaml";
         var mode = CliMode.Background;
-        DataViewOptions? dataView = null;
-        string? collection = null;
-        var limit = 20;
-        var json = false;
-        var expectCollection = false;
 
         for (var i = 0; i < args.Length; i++)
         {
             var arg = args[i];
 
-            if (expectCollection)
-            {
-                if (arg.StartsWith("--", StringComparison.Ordinal))
-                {
-                    throw new ArgumentException("data-view 需要指定集合名称。用法: TrendReporter2.App data-view <collection> [--limit <n>] [--json] [--config <path>]。");
-                }
-
-                collection = arg;
-                expectCollection = false;
-                continue;
-            }
-
-            if (arg.Equals("data-view", StringComparison.OrdinalIgnoreCase))
-            {
-                if (mode is CliMode.Validate or CliMode.FetchOnce or CliMode.DigestOnce)
-                {
-                    throw new ArgumentException("data-view 不能与 validate、fetch-once 或 digest-once 同时使用。");
-                }
-
-                if (mode == CliMode.DataView)
-                {
-                    throw new ArgumentException("data-view 只能指定一次。");
-                }
-
-                mode = CliMode.DataView;
-                expectCollection = true;
-                continue;
-            }
-
             if (arg.Equals("validate", StringComparison.OrdinalIgnoreCase))
             {
-                if (mode == CliMode.DataView)
+                if (mode is not CliMode.Background and not CliMode.Validate)
                 {
-                    throw new ArgumentException("validate 不能与 data-view 同时使用。");
-                }
-
-                if (mode is CliMode.FetchOnce or CliMode.DigestOnce)
-                {
-                    throw new ArgumentException("请只选择一种模式: validate、fetch-once、digest-once 或 data-view。");
+                    throw new ArgumentException("请只选择一种模式: validate、fetch-once 或 digest-once。");
                 }
 
                 mode = CliMode.Validate;
@@ -199,14 +164,9 @@ internal sealed record CliOptions(string ConfigPath, CliMode Mode, DataViewOptio
 
             if (arg.Equals("fetch-once", StringComparison.OrdinalIgnoreCase))
             {
-                if (mode == CliMode.DataView)
+                if (mode is not CliMode.Background and not CliMode.FetchOnce)
                 {
-                    throw new ArgumentException("fetch-once 不能与 data-view 同时使用。");
-                }
-
-                if (mode is CliMode.Validate or CliMode.DigestOnce)
-                {
-                    throw new ArgumentException("请只选择一种模式: validate、fetch-once、digest-once 或 data-view。");
+                    throw new ArgumentException("请只选择一种模式: validate、fetch-once 或 digest-once。");
                 }
 
                 mode = CliMode.FetchOnce;
@@ -215,14 +175,9 @@ internal sealed record CliOptions(string ConfigPath, CliMode Mode, DataViewOptio
 
             if (arg.Equals("digest-once", StringComparison.OrdinalIgnoreCase))
             {
-                if (mode == CliMode.DataView)
+                if (mode is not CliMode.Background and not CliMode.DigestOnce)
                 {
-                    throw new ArgumentException("digest-once 不能与 data-view 同时使用。");
-                }
-
-                if (mode is CliMode.Validate or CliMode.FetchOnce)
-                {
-                    throw new ArgumentException("请只选择一种模式: validate、fetch-once、digest-once 或 data-view。");
+                    throw new ArgumentException("请只选择一种模式: validate、fetch-once 或 digest-once。");
                 }
 
                 mode = CliMode.DigestOnce;
@@ -240,62 +195,10 @@ internal sealed record CliOptions(string ConfigPath, CliMode Mode, DataViewOptio
                 continue;
             }
 
-            if (arg.Equals("--limit", StringComparison.OrdinalIgnoreCase))
-            {
-                if (mode != CliMode.DataView)
-                {
-                    throw new ArgumentException("未知参数 '--limit'。用法: TrendReporter2.App [validate | fetch-once | digest-once | data-view <collection> [--limit <n>] [--json] [--config <path>]]。");
-                }
-
-                if (i + 1 >= args.Length)
-                {
-                    throw new ArgumentException("--limit 必须是 1 到 1000 之间的整数。");
-                }
-
-                var limitText = args[++i];
-                if (!int.TryParse(limitText, out limit) || limit is < 1 or > 1000)
-                {
-                    throw new ArgumentException("--limit 必须是 1 到 1000 之间的整数。");
-                }
-
-                continue;
-            }
-
-            if (arg.Equals("--json", StringComparison.OrdinalIgnoreCase))
-            {
-                if (mode != CliMode.DataView)
-                {
-                    throw new ArgumentException("未知参数 '--json'。用法: TrendReporter2.App [validate | fetch-once | digest-once | data-view <collection> [--limit <n>] [--json] [--config <path>]]。");
-                }
-
-                json = true;
-                continue;
-            }
-
-            throw new ArgumentException($"未知参数 '{arg}'。用法: TrendReporter2.App [validate | fetch-once | digest-once | data-view <collection> [--limit <n>] [--json] [--config <path>]]。");
+            throw new ArgumentException($"未知参数 '{arg}'。用法: TrendReporter2.App [validate | fetch-once | digest-once] [--config <path>]。");
         }
 
-        if (expectCollection)
-        {
-            throw new ArgumentException("data-view 需要指定集合名称。用法: TrendReporter2.App data-view <collection> [--limit <n>] [--json] [--config <path>]。");
-        }
-
-        if (mode == CliMode.DataView)
-        {
-            if (collection is null)
-            {
-                throw new ArgumentException("data-view 需要指定集合名称。用法: TrendReporter2.App data-view <collection> [--limit <n>] [--json] [--config <path>]。");
-            }
-
-            if (!TrendCollectionNames.All.Contains(collection))
-            {
-                throw new ArgumentException($"未知集合 '{collection}'。有效集合: {string.Join(", ", TrendCollectionNames.All)}。");
-            }
-
-            dataView = new DataViewOptions(collection, limit, json);
-        }
-
-        return new CliOptions(Path.GetFullPath(configPath), mode, dataView);
+        return new CliOptions(Path.GetFullPath(configPath), mode);
     }
 }
 
@@ -304,8 +207,36 @@ internal enum CliMode
     Background,
     Validate,
     FetchOnce,
-    DigestOnce,
-    DataView
+    DigestOnce
 }
 
-internal sealed record DataViewOptions(string Collection, int Limit, bool Json);
+internal static class StartupMigration
+{
+    private static readonly Func<IServiceProvider, CancellationToken, Task<SqlMigrationRunResult>> DefaultRunMigrationAsync =
+        static (services, cancellationToken) => services.GetRequiredService<SqlMigrationRunner>().RunAsync(cancellationToken);
+
+    public static Func<IServiceProvider, CancellationToken, Task<SqlMigrationRunResult>> RunMigrationAsync { get; set; } = DefaultRunMigrationAsync;
+
+    public static async Task RunIfEnabledAsync(
+        IServiceProvider services,
+        AppConfig config,
+        ILogger logger,
+        CancellationToken cancellationToken)
+    {
+        if (config.Database?.MigrateOnStartup != true)
+        {
+            logger.LogInformation("PostgreSQL 启动迁移已按配置跳过。");
+            return;
+        }
+
+        logger.LogInformation("PostgreSQL 启动迁移开始。");
+        var result = await RunMigrationAsync(services, cancellationToken);
+        logger.LogInformation(
+            "PostgreSQL 启动迁移已完成：应用 {AppliedCount} 个，跳过 {SkippedCount} 个。",
+            result.AppliedCount,
+            result.SkippedCount);
+    }
+
+    public static void ResetForTests()
+        => RunMigrationAsync = DefaultRunMigrationAsync;
+}

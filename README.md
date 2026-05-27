@@ -2,18 +2,18 @@
 
 TrendReporter2 是一个面向个人使用的舆论趋势分析工具，用于从传统媒体榜单中持续发现值得关注的重要事件，并追踪事件的热度变化、后续进展和发展过程。
 
-V1 的目标不是新闻阅读器，而是事件级趋势发现与推送系统：抓取新闻源、归并相关新闻为事件、判断事件重要性，并在需要时即时推送或生成定时摘要。
+TrendReporter2 的目标不是新闻阅读器，而是事件级趋势发现与推送系统：抓取新闻源、归并相关新闻为事件、判断事件重要性，并在需要时即时推送或生成定时摘要。
 
 ## 当前状态
 
 项目使用 .NET 8 构建，当前代码已具备以下能力：
 
 - 读取并校验 YAML 配置。
-- 初始化 LiteDB 数据库及基础集合、索引。
-- 通过 NewsNow 抓取配置中的新闻源，并写入 `content_item`、`content_snapshot` 和 `fetch_run`。
+- 初始化 PostgreSQL 数据库连接与 M0 基础迁移，创建后续 M1 主链路需要的表结构。
+- NewsNow 抓取、事件归并、评分和摘要链路的业务代码已保留；对应 PostgreSQL 仓储仍在 M1 实现，当前非 `validate` 运行模式会快速退出并提示该限制。
 - 对需要补充上下文的新闻调用配置的网页抽取服务，写回摘要与增强状态。
 - 基于规则召回候选事件，并可通过 OpenAI 兼容的 Cluster LLM 辅助事件归并。
-- 支持后台调度、单次抓取、配置校验和 LiteDB 数据查看命令。
+- 支持配置校验；后台调度、单次抓取和单次摘要命令名保留，但需等待 M1 PostgreSQL 仓储接入后才可执行主链路。
 
 根据 [里程碑文档](docs/milestones.md)，M0-M6 的最小主链路与稳定性补齐已具备：事件评分、即时推送、定时摘要、黑名单降噪、基础测试和回归样本已落地。
 
@@ -30,7 +30,7 @@ V1 的目标不是新闻阅读器，而是事件级趋势发现与推送系统�
 
 - 运行时：`.NET 8`
 - 进程模型：`Generic Host + BackgroundService`
-- 数据库：`LiteDB`
+- 数据库：`PostgreSQL`
 - 配置：`YamlDotNet`
 - JSON：`Newtonsoft.Json`
 - HTTP：`HttpClientFactory`
@@ -44,9 +44,9 @@ config.example.yaml
 docs/
 tools/
 src/
-  TrendReporter2.App/             # 程序入口、CLI、后台调度、数据查看
+  TrendReporter2.App/             # 程序入口、CLI、后台调度
   TrendReporter2.Core/            # 配置模型、领域模型、服务接口、核心规则
-  TrendReporter2.Infrastructure/  # LiteDB、NewsNow、增强服务、LLM 等外部适配
+  TrendReporter2.Infrastructure/  # PostgreSQL、NewsNow、增强服务、LLM 等外部适配
 ```
 
 依赖方向固定为：
@@ -81,7 +81,9 @@ cp config.example.yaml config.yaml
 
 - `newsNow.baseUrl`：NewsNow 服务地址。
 - `newsNow.sources`：需要抓取的分类和信源。
-- `database.path`：LiteDB 文件路径，默认 `./data/trend.db`。
+- `database.provider`：当前示例固定为 `postgres`。
+- `database.connectionString`：PostgreSQL 连接串，占位值仅用于本地示例。
+- `database.migrateOnStartup`：是否在启动时执行迁移，示例中显式开启。
 - `enrichment.web_extract_url`：网页抽取服务地址；为空时增强客户端不可用。
 - `llm.cluster`：事件归并模型配置；为空时会跳过 LLM 归并并创建新事件。
 - `pushers`：推送通道配置，后续推送功能会使用。
@@ -112,19 +114,25 @@ dotnet run --project src/TrendReporter2.App/TrendReporter2.App.csproj -- validat
 
 ### 5. 执行一次抓取
 
+M0 当前仅完成 PostgreSQL 连接和迁移基础，`fetch-once` 会在启动迁移后提示 PostgreSQL 仓储将在 M1 实现，并以非零状态退出；不会回退到 LiteDB。
+
 ```bash
 dotnet run --project src/TrendReporter2.App/TrendReporter2.App.csproj -- fetch-once
 ```
 
 ### 6. 启动后台服务
 
+后台服务同样会在 M0 阶段快速退出，等待 M1 接入抓取、事件、评分、推送和摘要所需的 PostgreSQL 仓储。
+
 ```bash
 dotnet run --project src/TrendReporter2.App/TrendReporter2.App.csproj
 ```
 
-后台服务启动后会立即执行一轮抓取，之后按 `analysis.fetchInterval` 周期运行。摘要调度器会按 `analysis.push.pushTime` 触发摘要任务，并通过 `app_state` 和 `push_log` 控制同一时段幂等。
+M1 仓储完成后，后台服务启动会立即执行一轮抓取，之后按 `analysis.fetchInterval` 周期运行。摘要调度器会按 `analysis.push.pushTime` 触发摘要任务，并通过 `app_state` 和 `push_log` 控制同一时段幂等。
 
 执行一次摘要：
+
+M0 阶段 `digest-once` 与 `fetch-once` 一样会快速提示仓储尚未实现。
 
 ```bash
 dotnet run --project src/TrendReporter2.App/TrendReporter2.App.csproj -- digest-once
@@ -132,30 +140,7 @@ dotnet run --project src/TrendReporter2.App/TrendReporter2.App.csproj -- digest-
 
 ## 常用命令
 
-查看 LiteDB 集合数据：
-
-```bash
-dotnet run --project src/TrendReporter2.App/TrendReporter2.App.csproj -- data-view content_item --limit 20
-```
-
-输出 JSON：
-
-```bash
-dotnet run --project src/TrendReporter2.App/TrendReporter2.App.csproj -- data-view fetch_run --limit 10 --json
-```
-
-可查看的集合名定义在 `src/TrendReporter2.Core/Persistence/TrendCollectionNames.cs`，当前包括：
-
-```text
-content_item
-content_snapshot
-event
-event_item
-event_score_snapshot
-push_log
-fetch_run
-app_state
-```
+如需查看数据库内容，请使用 `psql` 或 SQL 客户端直接连接 PostgreSQL。
 
 NewsNow 信源富化适配性诊断工具位于 `tools/newsnow_fetch_test/`。它使用 Python venv 和 `.env`，从 `sources.txt` 读取信源，按 `NEWS_ITEM_LIMIT` 检查每个信源的若干条新闻的 `HoverText`、WebExtract URL 抽取可用性、标题长度和最终摘要来源。
 
@@ -173,7 +158,7 @@ python newsnow_fetch_test.py
 主要配置段如下：
 
 - `newsNow`：NewsNow 服务地址和分类信源列表。
-- `database`：LiteDB 数据库路径。
+- `database`：PostgreSQL 连接和启动迁移配置。
 - `analysis`：抓取间隔、分析窗口、事件归并阈值、重复推送阈值等。
 - `llm`：事件归并、重要性判断、摘要润色等模型配置。
 - `enrichment`：网页抽取服务配置、单轮增强预算、标题长度阈值和冷却时间。
@@ -185,13 +170,7 @@ python newsnow_fetch_test.py
 
 ## 数据库
 
-运行期数据默认写入：
-
-```text
-data/trend.db
-```
-
-`data/` 属于运行期目录，不应提交到仓库。数据库初始化会创建内容、快照、事件、事件映射、评分快照、推送日志、抓取记录和应用状态集合。
+V1使用 LiteDB 作为数据库，但V2M0 已切换为 PostgreSQL 基础配置和启动迁移，数据库结构由迁移脚本创建。抓取、事件、评分、推送日志和摘要状态的 PostgreSQL 仓储仍属 V2M1 范围；在这些仓储完成前，运行期主链路不会写入 PostgreSQL，也不会回退到 LiteDB。`config.example.yaml` 里的连接串仅是本地占位值，不包含真实凭据。
 
 ## 测试与验证
 

@@ -29,7 +29,8 @@ newsNow:
 
 database:
   provider: "postgres"
-  connectionString: "Host=;Port=5432;Database=trendreporter;Username=;Password="
+  connectionString: "Host=localhost;Port=5432;Database=trendreporter;Username=trendreporter;Password=trendreporter"
+  migrateOnStartup: true
 
 analysis:
   fetchInterval: 3600 # 每小时抓取一次数据

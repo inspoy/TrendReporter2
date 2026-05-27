@@ -1,6 +1,6 @@
 # 测试与回归说明
 
-M6 引入 xUnit 测试项目，覆盖核心规则、适配器解析、LiteDB 持久化、WebExtract 写回和回归样本。
+V1M6 引入 xUnit 测试项目，覆盖核心规则、适配器解析、LiteDB 持久化、WebExtract 写回和回归样本。
 
 ## 命令
 

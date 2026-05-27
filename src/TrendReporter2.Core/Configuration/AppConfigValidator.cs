@@ -11,7 +11,17 @@ public static class AppConfigValidator
         var errors = new List<string>();
 
         Require(!string.IsNullOrWhiteSpace(config.NewsNow.BaseUrl), "newsNow.baseUrl 不能为空。");
-        Require(!string.IsNullOrWhiteSpace(config.Database.Path), "database.path 不能为空。");
+
+        if (config.Database is null)
+        {
+            errors.Add("database 不能为空。");
+        }
+        else
+        {
+            Require(config.Database.Provider == "postgres", "database.provider 必须为 postgres。");
+            Require(!string.IsNullOrWhiteSpace(config.Database.ConnectionString), "database.connectionString 不能为空。");
+        }
+
         Require(config.Analysis.FetchInterval > 0, "analysis.fetchInterval 必须大于 0。");
         Require(config.Analysis.HistoryHours > 0, "analysis.historyHours 必须大于 0。");
         Require(config.Analysis.Push.PushCount > 0, "analysis.push.pushCount 必须大于 0。");

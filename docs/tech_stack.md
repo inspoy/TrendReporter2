@@ -57,17 +57,17 @@ src/TrendReporter2.Core/
 当前职责：
 
 - `Configuration/AppConfig.cs`
-  定义 YAML 配置对应的强类型模型，包括 `newsNow`、`database`、`analysis`、`llm`、`tavily`、`filters`、`pushers`、`system`。
+  定义 YAML 配置对应的强类型模型，包括 `newsNow`、`database`、`analysis`、`llm`、`enrichment`、`filters`、`pushers`、`system`。
 - `Configuration/AppConfigValidator.cs`
-  做基础配置校验，例如 `newsNow.baseUrl`、`database.path`、`analysis.fetchInterval`、`pushTime` 格式等。
+  做基础配置校验，例如 `newsNow.baseUrl`、`database.provider`、`database.connectionString`、`analysis.fetchInterval`、`pushTime` 格式等。
 - `Configuration/TimeZoneResolver.cs`
   统一解析时区，并兼容 Windows 上的 `Asia/Shanghai`。
 - `Jobs/IFetchJob.cs`
-  一轮抓取任务接口，M1 开始会接入真实抓取逻辑。
+  一轮抓取任务接口；业务流程已存在，但 PostgreSQL 仓储主路径仍等待 M1 接入。
 - `Jobs/IDigestJob.cs`
-  摘要任务接口，M5 会接入真实摘要逻辑。
+  摘要任务接口；摘要业务流程已存在，但 PostgreSQL 状态和推送日志仓储仍等待 M1 接入。
 - `Persistence/ITrendDatabaseInitializer.cs`
-  数据库初始化接口。
+  旧 LiteDB 初始化接口，V2 默认 DI 不再注册。
 - `Persistence/TrendCollectionNames.cs`
   LiteDB 集合名常量。
 
@@ -95,24 +95,31 @@ src/TrendReporter2.Infrastructure/
 - `Configuration/YamlAppConfigLoader.cs`
   使用 `YamlDotNet` 读取 YAML，并反序列化为 `AppConfig`。
 - `Persistence/LiteDbInitializer.cs`
-  创建 LiteDB 文件、集合和基础索引。
+- `Persistence/SqlMigrationRunner.cs`
+  执行 PostgreSQL M0 启动迁移并维护 `schema_migration`。
+- `Persistence/Migrations/0001_init.sql`
+  创建 M1 主链路需要的 PostgreSQL 表结构。
+- `Persistence/LiteDb*Repository.cs`
+  过渡期 LiteDB 适配器源码仍保留以便编译和既有测试，但 V2 默认运行路径不会回退到 LiteDB；M1 会替换为 PostgreSQL 仓储。
 - `DependencyInjection.cs`
-  集中注册 Infrastructure 层服务。
+  集中注册 Infrastructure 层服务，包括 `NpgsqlDataSource`、迁移 runner、HTTP/LLM/推送相关适配和过渡期仓储接口。
 
 当前引入的基础依赖：
 
-- `LiteDB`
+- `LiteDB`（仅过渡期适配器/测试仍引用）
+- `Dapper`
 - `Newtonsoft.Json`
+- `Npgsql`
 - `YamlDotNet`
 - `Microsoft.Extensions.Logging.Abstractions`
 
 后续建议：
 
-- `NewsNowClient` 放在 `Infrastructure/NewsSources/`。
-- `TavilyClient` 放在 `Infrastructure/Enrichment/`。
+- `NewsNowClient` 放在 `Infrastructure/News/`。
+- 网页抽取客户端放在 `Infrastructure/Enrichment/`。
 - LLM 客户端放在 `Infrastructure/Llm/`。
 - Unipush 推送器放在 `Infrastructure/Push/`。
-- LiteDB 仓储实现放在 `Infrastructure/Persistence/`。
+- PostgreSQL 仓储实现放在 `Infrastructure/Persistence/`，不要新增 LiteDB 回退路径。
 
 ### 2.3 `TrendReporter2.App`
 
@@ -129,15 +136,15 @@ src/TrendReporter2.App/
 当前职责：
 
 - `Program.cs`
-  解析命令行参数、加载配置、创建 Generic Host、注册 DI、初始化数据库、启动后台服务。
+  解析命令行参数、加载配置、创建 Generic Host、注册 DI、初始化数据库迁移、启动后台服务。
 - `Scheduling/FetchSchedulerService.cs`
-  抓取调度器骨架。启动后立即执行一次，之后按 `analysis.fetchInterval` 周期执行，并用 `SemaphoreSlim` 防止重入。
+  抓取调度器。启动后立即执行一次，之后按 `analysis.fetchInterval` 周期执行，并用 `SemaphoreSlim` 防止重入。
 - `Scheduling/DigestSchedulerService.cs`
-  摘要调度器骨架。每分钟检查当前本地时间是否命中 `analysis.push.pushTime`。
-- `Scheduling/EmptyFetchJob.cs`
-  M0 占位实现，后续会替换为真实 `FetchJob`。
-- `Scheduling/EmptyDigestJob.cs`
-  M0 占位实现，后续会替换为真实 `DigestJob`。
+  摘要调度器。每分钟检查当前本地时间是否命中 `analysis.push.pushTime`。
+- `Scheduling/FetchJob.cs`
+  抓取、增强、事件归并、评分和即时推送编排；M0 阶段因 PostgreSQL 仓储未完成而不会进入运行主路径。
+- `Scheduling/DigestJob.cs`
+  定时摘要候选过滤、消息组装、推送和状态标记编排；M0 阶段因 PostgreSQL 仓储未完成而不会进入运行主路径。
 
 当前引入的基础依赖：
 
@@ -174,34 +181,9 @@ M0 中 `config.example.yaml` 已整理为可解析 YAML，并将 `newsNow.baseUr
 
 ## 4. 数据库
 
-当前使用 LiteDB。
+当前使用 PostgreSQL 作为基础数据库，示例配置提供本地占位连接串和启动迁移开关。
 
-默认数据库路径：
-
-```text
-data/trend.db
-```
-
-该目录已加入 `.gitignore`，不会提交运行期数据。
-
-M0 初始化的集合：
-
-```text
-content_item
-content_snapshot
-event
-event_item
-event_score_snapshot
-push_log
-fetch_run
-app_state
-```
-
-集合名集中定义在：
-
-```text
-src/TrendReporter2.Core/Persistence/TrendCollectionNames.cs
-```
+M0 只保证 PostgreSQL provider、`NpgsqlDataSource` 和迁移脚本；迁移会创建 M1 主链路需要的表结构。抓取、事件、评分、推送日志和摘要状态的 PostgreSQL 仓储将在 M1 实现，完成前非 `validate` 模式会快速提示 M0/M1 限制并退出，不会写入 PostgreSQL 主链路，也不会回退到本地 `data/trend.db`。
 
 ## 5. 常用命令
 
@@ -217,7 +199,7 @@ dotnet restore TrendReporter2.sln --configfile NuGet.Config
 dotnet build TrendReporter2.sln --no-restore -m:1 /p:UseSharedCompilation=false --verbosity minimal
 ```
 
-验证配置与数据库初始化：
+验证配置：
 
 ```powershell
 dotnet run --project src\TrendReporter2.App\TrendReporter2.App.csproj --no-build -- validate
@@ -238,30 +220,30 @@ dotnet run --project src\TrendReporter2.App\TrendReporter2.App.csproj
 
 M1 新闻抓取与原始入库：
 
-- `Core`：新增 `NewsItem`、`ContentItem`、`ContentSnapshot`、`FetchRun` 等模型和仓储接口。
-- `Infrastructure`：新增 `NewsNowClient`、LiteDB 仓储实现。
-- `App`：将 `EmptyFetchJob` 替换为真实 `FetchJob`。
+- `Core`：继续维护 `NewsItem`、`ContentItem`、`ContentSnapshot`、`FetchRun` 等模型和仓储接口。
+- `Infrastructure`：实现抓取、事件、评分、推送日志和摘要状态所需的 PostgreSQL 仓储。
+- `App`：移除 M0 运行期仓储限制，让现有 `FetchJob`/`DigestJob` 进入 PostgreSQL 主路径。
 
 M2 正文增强：
 
-- `Core`：新增 `EnrichmentResult`、增强判定服务接口。
-- `Infrastructure`：新增 `TavilyClient`。
-- `App`：在抓取链路中接入增强服务。
+- `Core`：维护增强结果、增强判定服务接口和弱标题策略。
+- `Infrastructure`：维护 WebExtract 增强客户端。
+- `App`：在抓取链路中编排增强服务。
 
 M3 事件建模与归并：
 
-- `Core`：新增事件领域模型、候选召回接口、归并接口。
-- `Infrastructure`：新增 LLM cluster 客户端和事件仓储。
-- `App`：在抓取链路中接入事件匹配流程。
+- `Core`：维护事件领域模型、候选召回接口、归并接口和匹配规则。
+- `Infrastructure`：维护 LLM cluster 客户端；PostgreSQL 事件仓储实现仍属 M1 补齐范围。
+- `App`：在抓取链路中编排事件匹配流程。
 
 M4 评分与即时推送：
 
-- `Core`：新增评分模型、评分规则、推送判定接口。
-- `Infrastructure`：新增 Judge LLM 客户端、Unipush 推送器、`push_log` 仓储。
-- `App`：在抓取链路末尾接入评分与即时推送。
+- `Core`：维护评分模型、评分规则、推送判定接口和黑名单策略。
+- `Infrastructure`：维护 Judge LLM 客户端和 Unipush 推送器；PostgreSQL `push_log` 仓储仍属 M1 补齐范围。
+- `App`：在抓取链路末尾编排评分与即时推送。
 
 M5 定时摘要与黑名单：
 
-- `Core`：新增摘要查询、黑名单判定、摘要消息模型。
-- `Infrastructure`：补充摘要相关仓储查询。
-- `App`：将 `EmptyDigestJob` 替换为真实 `DigestJob`。
+- `Core`：维护摘要查询、黑名单判定和摘要消息模型。
+- `Infrastructure`：补充 PostgreSQL 摘要相关仓储查询。
+- `App`：现有 `DigestJob` 在 M1 仓储完成后进入真实摘要运行路径。

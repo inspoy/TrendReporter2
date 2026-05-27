@@ -26,7 +26,7 @@ Highest-complexity Core area. Converts ingested content into event aggregates, r
 
 ## ANTI-PATTERNS
 - Do not persist new event statuses, push types, trigger reasons, or progress stages without constants.
-- Do not bypass `IEventRepository` or `IAppStateRepository`; Persistence owns LiteDB queries.
+- Do not bypass `IEventRepository` or `IAppStateRepository`; Persistence owns database queries.
 - Do not treat LLM failures as fatal to the fetch run; current clients degrade to neutral/create-new results.
 - Do not remove cancellation checks in matching/scoring loops.
 - Do not push without inserting/updating `PushLog` through the repository contract.

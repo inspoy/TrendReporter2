@@ -23,7 +23,8 @@ public sealed class LiteDbInitializer : ITrendDatabaseInitializer
 
     public void Initialize()
     {
-        var databasePath = LiteDbConnectionFactory.ResolveDatabasePath(_config.Database.Path);
+        var databaseConfig = _config.Database ?? throw new InvalidOperationException("database 不能为空。");
+        var databasePath = LiteDbConnectionFactory.ResolveDatabasePath(databaseConfig.ConnectionString);
         using var database = _connectionFactory.Open();
 
         EnsureContentItemIndexes(database);

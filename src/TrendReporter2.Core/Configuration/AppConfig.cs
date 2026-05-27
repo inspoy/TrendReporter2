@@ -4,7 +4,7 @@ public sealed class AppConfig
 {
     public NewsNowConfig NewsNow { get; init; } = new();
 
-    public DatabaseConfig Database { get; init; } = new();
+    public DatabaseConfig? Database { get; init; }
 
     public AnalysisConfig Analysis { get; init; } = new();
 
@@ -28,7 +28,11 @@ public sealed class NewsNowConfig
 
 public sealed class DatabaseConfig
 {
-    public string Path { get; init; } = "./data/trend.db";
+    public string Provider { get; init; } = string.Empty;
+
+    public string ConnectionString { get; init; } = string.Empty;
+
+    public bool MigrateOnStartup { get; init; } = true;
 }
 
 public sealed class AnalysisConfig

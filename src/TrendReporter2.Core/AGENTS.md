@@ -13,7 +13,7 @@ TrendReporter2.Core/
 ├── Fetch/          # fetch_run model and repository contract
 ├── Jobs/           # fetch and digest job contracts
 ├── News/           # raw news item and source-client contract
-└── Persistence/    # database initializer contract and collection names
+└── Persistence/    # persistence initializer contract and logical names
 ```
 
 ## WHERE TO LOOK
@@ -21,7 +21,7 @@ TrendReporter2.Core/
 |------|----------|-------|
 | Config shape/defaults | `Configuration/AppConfig.cs` | Mirrors YAML keys via camelCase binding. |
 | Config validation | `Configuration/AppConfigValidator.cs` | Positive values, ratios, push times, timezone. |
-| Collection list | `Persistence/TrendCollectionNames.cs` | Update before adding LiteDB collection; includes `app_state`. |
+| Persistence name list | `Persistence/TrendCollectionNames.cs` | Logical names retained for repository/table mapping; includes `app_state`. |
 | Event domain | `Events/EventAggregate.cs` | Event lifecycle fields, blacklist fields, status strings. |
 | Matching algorithm | `Events/EventMatcher.cs` | Active/stale recall, stable anchors, LLM decision handling. |
 | Scoring/push rules | `Events/EventScoringService.cs` | Eligibility, blacklist, progress stages, push dedup. |
@@ -31,15 +31,15 @@ TrendReporter2.Core/
 
 ## CONVENTIONS
 - Core has no project references; keep third-party adapters out.
-- Constants are static string classes instead of enums when values persist to LiteDB.
+- Constants are static string classes instead of enums when values persist across repository boundaries.
 - IDs and dedup keys are deterministic where possible; repositories may add run-time uniqueness.
 - Business thresholds come from `AppConfig.Analysis` and `AppConfig.System`.
 - User-facing validation errors are Chinese and specific.
 - Prefer adding new contracts/models here, then implement adapters in Infrastructure.
-- App wires CLI, host, and jobs; Infrastructure implements LiteDB, HTTP, YAML, LLM, and push adapters.
+- App wires CLI, host, and jobs; Infrastructure implements PostgreSQL, HTTP, YAML, LLM, and push adapters.
 
 ## ANTI-PATTERNS
-- Do not reference LiteDB, YamlDotNet, HttpClient adapters, LLM clients, or push SDKs from Core.
+- Do not reference PostgreSQL, LiteDB, YamlDotNet, HttpClient adapters, LLM clients, or push SDKs from Core.
 - Do not duplicate collection/status names as literals outside the existing constants.
 - Do not weaken `AppConfigValidator` to make examples pass; fix config/defaults instead.
 - Do not move event matching/scoring/blacklist rules into Infrastructure just because they use LLM or persistence contracts.

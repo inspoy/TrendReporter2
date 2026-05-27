@@ -14,7 +14,8 @@ public sealed class LiteDbConnectionFactory
 
     public LiteDatabase Open()
     {
-        var databasePath = ResolveDatabasePath(_config.Database.Path);
+        var database = _config.Database ?? throw new InvalidOperationException("database 不能为空。");
+        var databasePath = ResolveDatabasePath(database.ConnectionString);
         var dataDirectory = Path.GetDirectoryName(databasePath);
 
         if (!string.IsNullOrWhiteSpace(dataDirectory))
@@ -27,7 +28,18 @@ public sealed class LiteDbConnectionFactory
 
     public static string ResolveDatabasePath(string configuredPath)
     {
-        var expandedPath = Environment.ExpandEnvironmentVariables(configuredPath);
+        var filePath = configuredPath;
+
+        var filenamePrefix = "Filename=";
+        if (configuredPath.StartsWith(filenamePrefix, StringComparison.OrdinalIgnoreCase))
+        {
+            var semicolonIndex = configuredPath.IndexOf(';');
+            filePath = semicolonIndex >= 0
+                ? configuredPath[(filenamePrefix.Length)..semicolonIndex]
+                : configuredPath[filenamePrefix.Length..];
+        }
+
+        var expandedPath = Environment.ExpandEnvironmentVariables(filePath);
         return Path.GetFullPath(expandedPath, Environment.CurrentDirectory);
     }
 }

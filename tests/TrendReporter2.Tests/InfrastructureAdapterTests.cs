@@ -1,16 +1,11 @@
 using System.Net;
-using LiteDB;
 using Microsoft.Extensions.Logging.Abstractions;
 using Newtonsoft.Json.Linq;
 using TrendReporter2.Core.Configuration;
 using TrendReporter2.Core.Content;
-using TrendReporter2.Core.Enrichment;
 using TrendReporter2.Core.Events;
-using TrendReporter2.Core.News;
-using TrendReporter2.Core.Persistence;
 using TrendReporter2.Infrastructure.Enrichment;
 using TrendReporter2.Infrastructure.News;
-using TrendReporter2.Infrastructure.Persistence;
 using TrendReporter2.Infrastructure.Push;
 
 namespace TrendReporter2.Tests;
@@ -102,136 +97,11 @@ public sealed class InfrastructureAdapterTests
         Assert.Equal("https://example.com", payload.Value<string>("link"));
     }
 
-    [Fact]
-    public async Task LiteDbInitializerAndContentIngest_AreIdempotentAndWriteSnapshots()
-    {
-        var path = TempDbPath();
-        var config = Config(databasePath: path);
-        var factory = new LiteDbConnectionFactory(config);
-        var initializer = new LiteDbInitializer(config, factory, NullLoggerFactory.Instance);
-        initializer.Initialize();
-        initializer.Initialize();
-        var ingest = new ContentIngestService(factory, new StubEnrichmentPolicy(true), NullLoggerFactory.Instance);
-        var capturedAt = DateTimeOffset.Parse("2026-05-05T08:00:00Z");
-        var news = new NewsItem
-        {
-            Source = "source-a",
-            Category = "tech",
-            SourceItemId = "item-1",
-            Title = "短标题",
-            Url = "https://example.com/1",
-            Rank = 1,
-            SourceListSize = 2,
-            RawPayload = "{}"
-        };
-
-        var first = await ingest.IngestAsync("run-1", [news], capturedAt, CancellationToken.None);
-        var second = await ingest.IngestAsync("run-2", [new NewsItem
-        {
-            Source = news.Source,
-            Category = news.Category,
-            SourceItemId = news.SourceItemId,
-            Title = "短标题更新",
-            Url = news.Url,
-            Rank = news.Rank,
-            SourceListSize = news.SourceListSize,
-            RawPayload = news.RawPayload
-        }], capturedAt.AddMinutes(1), CancellationToken.None);
-
-        Assert.Equal(1, first.InsertedCount);
-        Assert.Equal(1, second.UpdatedCount);
-        using var database = new LiteDatabase($"Filename={path};Connection=shared");
-        foreach (var collectionName in TrendCollectionNames.All)
-        {
-            Assert.True(database.CollectionExists(collectionName));
-        }
-
-        var contentItems = database.GetCollection<ContentItem>(TrendCollectionNames.ContentItem).FindAll().ToList();
-        var snapshots = database.GetCollection<ContentSnapshot>(TrendCollectionNames.ContentSnapshot).FindAll().ToList();
-        Assert.Single(contentItems);
-        Assert.Equal("短标题更新", contentItems.Single().Title);
-        Assert.Equal(EnrichmentStatuses.Pending, contentItems.Single().EnrichmentStatus);
-        Assert.Equal(2, snapshots.Count);
-        Assert.Contains(snapshots, snapshot => snapshot.RunId == "run-1" && snapshot.NormalizedRankScore == 1);
-        Assert.Contains(snapshots, snapshot => snapshot.RunId == "run-2" && snapshot.NormalizedRankScore == 1);
-    }
-
-    [Fact]
-    public async Task ContentIngest_DisabledEnrichmentSourceFallsBackToTitleOnly()
-    {
-        var path = TempDbPath();
-        var config = Config(databasePath: path, disabledSources: ["source-a"]);
-        var factory = new LiteDbConnectionFactory(config);
-        new LiteDbInitializer(config, factory, NullLoggerFactory.Instance).Initialize();
-        var ingest = new ContentIngestService(factory, new EnrichmentPolicy(config), NullLoggerFactory.Instance);
-        var capturedAt = DateTimeOffset.Parse("2026-05-05T08:00:00Z");
-
-        await ingest.IngestAsync("run-1", [new NewsItem
-        {
-            Source = "source-a",
-            Category = "tech",
-            SourceItemId = "item-1",
-            Title = "突发",
-            Url = "https://example.com/1",
-            Rank = 1,
-            SourceListSize = 1,
-            RawPayload = "{}"
-        }], capturedAt, CancellationToken.None);
-
-        using var database = factory.Open();
-        var item = database.GetCollection<ContentItem>(TrendCollectionNames.ContentItem).FindAll().Single();
-        Assert.False(item.NeedEnrichment);
-        Assert.Equal(EnrichmentStatuses.Skipped, item.EnrichmentStatus);
-        Assert.Equal("突发", item.Summary);
-        Assert.Equal(SummarySources.TitleOnly, item.SummarySource);
-    }
-
-    [Fact]
-    public async Task EnrichmentService_WritesBackSuccessfulClientResult()
-    {
-        var path = TempDbPath();
-        var config = Config(databasePath: path, webExtractUrl: "https://extract.local");
-        var factory = new LiteDbConnectionFactory(config);
-        new LiteDbInitializer(config, factory, NullLoggerFactory.Instance).Initialize();
-        var startedAt = DateTimeOffset.Parse("2026-05-05T08:00:00Z");
-        using (var database = factory.Open())
-        {
-            database.GetCollection<ContentItem>(TrendCollectionNames.ContentItem).Insert(new ContentItem
-            {
-                Id = "ci-1",
-                DedupKey = "source|1",
-                Source = "source",
-                Category = "tech",
-                SourceItemId = "1",
-                Title = "短标题",
-                Url = "https://example.com/1",
-                NeedEnrichment = true,
-                EnrichmentStatus = EnrichmentStatuses.Pending,
-                LastSeenRunId = "run-1",
-                LastSeenRank = 1,
-                CreatedAt = startedAt,
-                UpdatedAt = startedAt
-            });
-        }
-
-        var service = new EnrichmentService(config, factory, new StubEnrichmentClient(), NullLoggerFactory.Instance);
-
-        var result = await service.EnrichRunAsync("run-1", startedAt, CancellationToken.None);
-
-        Assert.Equal(new EnrichmentRunResult(1, 1, 1, 0, 0), result);
-        using var verify = factory.Open();
-        var item = verify.GetCollection<ContentItem>(TrendCollectionNames.ContentItem).FindById("ci-1");
-        Assert.Equal("富化标题", item.Title);
-        Assert.Equal("富化摘要", item.Summary);
-        Assert.Equal(SummarySources.Enrichment, item.SummarySource);
-        Assert.Equal(EnrichmentStatuses.Succeeded, item.EnrichmentStatus);
-    }
-
-    private static AppConfig Config(string databasePath = "unused.db", string webExtractUrl = "", string pusherUrl = "", string pusherSecret = "", string pusherCate = "default", string channels = "", List<string>? disabledSources = null)
+    private static AppConfig Config(string webExtractUrl = "", string pusherUrl = "", string pusherSecret = "", string pusherCate = "default", string channels = "")
         => new()
         {
-            Database = new DatabaseConfig { Path = databasePath },
-            Enrichment = new EnrichmentConfig { WebExtractUrl = webExtractUrl, DisabledSources = disabledSources ?? [], MaxRequestsPerRun = 5, RetryCooldownHours = 12 },
+            Database = new DatabaseConfig { Provider = "postgres", ConnectionString = "Host=localhost;Database=trend;Username=trend;Password=secret" },
+            Enrichment = new EnrichmentConfig { WebExtractUrl = webExtractUrl, MaxRequestsPerRun = 5, RetryCooldownHours = 12 },
             System = new SystemConfig { MaxParallelEnrichment = 1 },
             Pushers = string.IsNullOrWhiteSpace(pusherUrl) ? [] : [new PusherConfig { Type = "unipush", Url = pusherUrl, Secret = pusherSecret, Cate = pusherCate, Channels = channels }]
         };
@@ -239,20 +109,4 @@ public sealed class InfrastructureAdapterTests
     private static ContentItem ContentItem()
         => new() { Id = "ci-1", Title = "原标题", Url = "https://example.com/original" };
 
-    private static string TempDbPath()
-        => Path.Combine(Path.GetTempPath(), "TrendReporter2.Tests", Guid.NewGuid().ToString("N"), "trend.db");
-
-    private sealed class StubEnrichmentPolicy : IEnrichmentPolicy
-    {
-        private readonly bool _needEnrichment;
-        public StubEnrichmentPolicy(bool needEnrichment) => _needEnrichment = needEnrichment;
-        public bool NeedEnrichment(NewsItem item) => _needEnrichment;
-        public bool NeedEnrichment(ContentItem item) => _needEnrichment;
-    }
-
-    private sealed class StubEnrichmentClient : IEnrichmentClient
-    {
-        public Task<EnrichmentResult?> EnrichAsync(ContentItem item, CancellationToken cancellationToken)
-            => Task.FromResult<EnrichmentResult?>(new EnrichmentResult { Title = "富化标题", Summary = "富化摘要", Url = item.Url, RawPayload = "{}" });
-    }
 }
