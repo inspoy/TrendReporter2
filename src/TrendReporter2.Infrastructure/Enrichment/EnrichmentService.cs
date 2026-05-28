@@ -1,9 +1,7 @@
-using LiteDB;
 using Microsoft.Extensions.Logging;
 using TrendReporter2.Core.Configuration;
 using TrendReporter2.Core.Content;
 using TrendReporter2.Core.Enrichment;
-using TrendReporter2.Core.Persistence;
 using TrendReporter2.Infrastructure.Persistence;
 
 namespace TrendReporter2.Infrastructure.Enrichment;
@@ -11,18 +9,18 @@ namespace TrendReporter2.Infrastructure.Enrichment;
 public sealed class EnrichmentService : IEnrichmentService
 {
     private readonly AppConfig _config;
-    private readonly LiteDbConnectionFactory _connectionFactory;
+    private readonly PostgresContentRepository _contentRepository;
     private readonly IEnrichmentClient _enrichmentClient;
     private readonly ILogger _logger;
 
     public EnrichmentService(
         AppConfig config,
-        LiteDbConnectionFactory connectionFactory,
+        PostgresContentRepository contentRepository,
         IEnrichmentClient enrichmentClient,
         ILoggerFactory loggerFactory)
     {
         _config = config;
-        _connectionFactory = connectionFactory;
+        _contentRepository = contentRepository;
         _enrichmentClient = enrichmentClient;
         _logger = loggerFactory.CreateLogger("Enrichment");
     }
@@ -32,7 +30,7 @@ public sealed class EnrichmentService : IEnrichmentService
         DateTimeOffset startedAt,
         CancellationToken cancellationToken)
     {
-        var candidates = LoadCandidates(runId, startedAt);
+        var candidates = await LoadCandidatesAsync(runId, startedAt, cancellationToken);
         var limit = Math.Max(0, _config.Enrichment.MaxRequestsPerRun);
         var attempted = 0;
         var succeeded = 0;
@@ -49,7 +47,7 @@ public sealed class EnrichmentService : IEnrichmentService
         {
             foreach (var item in candidates)
             {
-                MarkSkipped(item, "未配置富化网页提取 URL。", startedAt);
+                await MarkSkippedAsync(item, "未配置富化网页提取 URL。", startedAt, cancellationToken);
                 skipped++;
             }
 
@@ -65,7 +63,7 @@ public sealed class EnrichmentService : IEnrichmentService
         {
             if (Volatile.Read(ref attempted) >= limit)
             {
-                MarkSkipped(item, "已达到每次运行富化请求上限。", startedAt);
+                await MarkSkippedAsync(item, "已达到每次运行富化请求上限。", startedAt, cancellationToken);
                 Interlocked.Increment(ref skipped);
                 return;
             }
@@ -77,14 +75,14 @@ public sealed class EnrichmentService : IEnrichmentService
 
                 if (string.IsNullOrWhiteSpace(item.Url))
                 {
-                    MarkSkipped(item, "内容条目没有 URL。", startedAt);
+                    await MarkSkippedAsync(item, "内容条目没有 URL。", startedAt, cancellationToken);
                     Interlocked.Increment(ref skipped);
                     return;
                 }
 
                 if (Interlocked.Increment(ref attempted) > limit)
                 {
-                    MarkSkipped(item, "已达到每次运行富化请求上限。", startedAt);
+                    await MarkSkippedAsync(item, "已达到每次运行富化请求上限。", startedAt, cancellationToken);
                     Interlocked.Increment(ref skipped);
                     return;
                 }
@@ -96,7 +94,7 @@ public sealed class EnrichmentService : IEnrichmentService
                     var result = await _enrichmentClient.EnrichAsync(item, cancellationToken);
                     if (result is null || string.IsNullOrWhiteSpace(result.Summary))
                     {
-                        ApplySummaryFallback(item, EnrichmentStatuses.Failed, startedAt, markTried: true);
+                        await ApplySummaryFallbackAsync(item, EnrichmentStatuses.Failed, startedAt, markTried: true, cancellationToken);
                         Interlocked.Increment(ref failed);
                         return;
                     }
@@ -108,7 +106,7 @@ public sealed class EnrichmentService : IEnrichmentService
                     item.SummarySource = summary.Source;
                     item.EnrichmentStatus = EnrichmentStatuses.Succeeded;
                     item.UpdatedAt = startedAt;
-                    Save(item);
+                    await SaveAsync(item, cancellationToken);
                     Interlocked.Increment(ref succeeded);
                 }
                 catch (Exception ex) when (ex is not OperationCanceledException)
@@ -118,7 +116,7 @@ public sealed class EnrichmentService : IEnrichmentService
                         "富化处理失败，内容条目编号={ContentItemId}，运行编号={RunId}。",
                         item.Id,
                         runId);
-                    ApplySummaryFallback(item, EnrichmentStatuses.Failed, startedAt, markTried: true);
+                    await ApplySummaryFallbackAsync(item, EnrichmentStatuses.Failed, startedAt, markTried: true, CancellationToken.None);
                     Interlocked.Increment(ref failed);
                 }
             }
@@ -142,33 +140,22 @@ public sealed class EnrichmentService : IEnrichmentService
         return new EnrichmentRunResult(candidates.Count, attempted, succeeded, failed, skipped);
     }
 
-    private List<ContentItem> LoadCandidates(string runId, DateTimeOffset now)
+    private async Task<IReadOnlyList<ContentItem>> LoadCandidatesAsync(string runId, DateTimeOffset now, CancellationToken cancellationToken)
     {
         var cooldownCutoff = now.AddHours(-Math.Max(0, _config.Enrichment.RetryCooldownHours));
-
-        using var database = _connectionFactory.Open();
-        var collection = database.GetCollection<ContentItem>(TrendCollectionNames.ContentItem);
-        return collection
-            .Find(item =>
-                item.LastSeenRunId == runId &&
-                item.NeedEnrichment &&
-                item.EnrichmentStatus != EnrichmentStatuses.Succeeded &&
-                (item.EnrichmentTriedAt == null || item.EnrichmentTriedAt <= cooldownCutoff))
-            .OrderBy(item => item.LastSeenRank)
-            .ThenBy(item => item.Source)
-            .ToList();
+        return await _contentRepository.LoadEnrichmentCandidatesAsync(runId, cooldownCutoff, cancellationToken);
     }
 
-    private void MarkSkipped(ContentItem item, string reason, DateTimeOffset now)
+    private async Task MarkSkippedAsync(ContentItem item, string reason, DateTimeOffset now, CancellationToken cancellationToken)
     {
         _logger.LogInformation(
             "跳过富化处理，内容条目编号={ContentItemId}。原因={Reason}",
             item.Id,
             reason);
-        ApplySummaryFallback(item, EnrichmentStatuses.Skipped, now, markTried: false);
+        await ApplySummaryFallbackAsync(item, EnrichmentStatuses.Skipped, now, markTried: false, cancellationToken);
     }
 
-    private void ApplySummaryFallback(ContentItem item, string status, DateTimeOffset now, bool markTried)
+    private async Task ApplySummaryFallbackAsync(ContentItem item, string status, DateTimeOffset now, bool markTried, CancellationToken cancellationToken)
     {
         var summary = BuildPreferredSummary(item, enrichmentSummary: null);
         item.Summary = summary.Value;
@@ -180,13 +167,12 @@ public sealed class EnrichmentService : IEnrichmentService
         }
 
         item.UpdatedAt = now;
-        Save(item);
+        await SaveAsync(item, cancellationToken);
     }
 
-    private void Save(ContentItem item)
+    private async Task SaveAsync(ContentItem item, CancellationToken cancellationToken)
     {
-        using var database = _connectionFactory.Open();
-        database.GetCollection<ContentItem>(TrendCollectionNames.ContentItem).Update(item);
+        await _contentRepository.SaveAsync(item, cancellationToken);
     }
 
     private static (string Value, string Source) BuildPreferredSummary(ContentItem item, string? enrichmentSummary)

@@ -63,9 +63,9 @@ src/TrendReporter2.Core/
 - `Configuration/TimeZoneResolver.cs`
   统一解析时区，并兼容 Windows 上的 `Asia/Shanghai`。
 - `Jobs/IFetchJob.cs`
-  一轮抓取任务接口；业务流程已存在，但 PostgreSQL 仓储主路径仍等待 V2M1 接入。
+  一轮抓取任务接口；运行期主路径通过 PostgreSQL/Dapper 仓储执行入库、归并、评分和推送日志写入。
 - `Jobs/IDigestJob.cs`
-  摘要任务接口；摘要业务流程已存在，但 PostgreSQL 状态和推送日志仓储仍等待 V2M1 接入。
+  摘要任务接口；通过 PostgreSQL 查询候选，并使用 `app_state` 和 `push_log` 保持幂等。
 - `Persistence/ITrendDatabaseInitializer.cs`
   旧 LiteDB 初始化接口，V2 默认 DI 不再注册。
 - `Persistence/TrendCollectionNames.cs`
@@ -96,13 +96,17 @@ src/TrendReporter2.Infrastructure/
   使用 `YamlDotNet` 读取 YAML，并反序列化为 `AppConfig`。
 - `Persistence/LiteDbInitializer.cs`
 - `Persistence/SqlMigrationRunner.cs`
-  执行 PostgreSQL V2M0 启动迁移并维护 `schema_migration`。
+  执行 PostgreSQL 启动迁移并维护 `schema_migration`，已应用 migration 的 checksum 不可变。
 - `Persistence/Migrations/0001_init.sql`
   创建 V2M1 主链路需要的 PostgreSQL 表结构。
+- `Persistence/Migrations/0002_v2m1_persistence_indexes.sql`
+  为 V2M1 仓储查询增加附加唯一约束和索引。
+- `Persistence/Postgres*Repository.cs`
+  PostgreSQL/Dapper 主路径仓储，覆盖内容、事件、运行记录和摘要状态。
 - `Persistence/LiteDb*Repository.cs`
-  过渡期 LiteDB 适配器源码仍保留以便编译和既有测试，但 V2 默认运行路径不会回退到 LiteDB；V2M1 会替换为 PostgreSQL 仓储。
+  过渡期 LiteDB 适配器源码仍保留以便对照和后续清理，但 V2 默认运行路径不会注册或回退到 LiteDB。
 - `DependencyInjection.cs`
-  集中注册 Infrastructure 层服务，包括 `NpgsqlDataSource`、迁移 runner、HTTP/LLM/推送相关适配和过渡期仓储接口。
+  集中注册 Infrastructure 层服务，包括 `NpgsqlDataSource`、迁移 runner、PostgreSQL 仓储和核心服务实现。
 
 当前引入的基础依赖：
 
@@ -142,9 +146,9 @@ src/TrendReporter2.App/
 - `Scheduling/DigestSchedulerService.cs`
   摘要调度器。每分钟检查当前本地时间是否命中 `analysis.push.pushTime`。
 - `Scheduling/FetchJob.cs`
-  抓取、增强、事件归并、评分和即时推送编排；V2M0 阶段因 PostgreSQL 仓储未完成而不会进入运行主路径。
+  抓取、增强、事件归并、评分和即时推送编排；主路径持久化写入 PostgreSQL。
 - `Scheduling/DigestJob.cs`
-  定时摘要候选过滤、消息组装、推送和状态标记编排；V2M0 阶段因 PostgreSQL 仓储未完成而不会进入运行主路径。
+  定时摘要候选过滤、消息组装、推送和状态标记编排；通过 PostgreSQL `app_state` 和 `push_log` 控制幂等。
 
 当前引入的基础依赖：
 
@@ -183,7 +187,7 @@ V1 中 `config.example.yaml` 已整理为可解析 YAML，并将 `newsNow.baseUr
 
 当前使用 PostgreSQL 作为基础数据库，示例配置提供本地占位连接串和启动迁移开关。
 
-V2M0 只保证 PostgreSQL provider、`NpgsqlDataSource` 和迁移脚本；迁移会创建 V2M1 主链路需要的表结构。抓取、事件、评分、推送日志和摘要状态的 PostgreSQL 仓储将在 V2M1 实现，完成前非 `validate` 模式会快速提示 V2M0/V2M1 限制并退出，不会写入 PostgreSQL 主链路，也不会回退到本地 `data/trend.db`。
+V2 使用 PostgreSQL 作为运行期主数据库。启动迁移按文件名顺序应用 SQL 文件并校验 checksum；已应用的 migration 不应修改，新增 schema 调整应写入新的 migration 文件。抓取、内容、快照、事件、评分、推送日志、运行记录和摘要状态已通过 PostgreSQL/Dapper 仓储接入主路径，不会回退到本地 LiteDB 文件。
 
 ## 5. 常用命令
 

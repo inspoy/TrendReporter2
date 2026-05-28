@@ -55,7 +55,7 @@ public sealed class EventMatcher : IEventMatcher
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            var commitMatch = hasCommittedEventChange && ShouldRevalidateBeforeCommit(precomputedMatch.Item, precomputedMatch.Candidates, precomputedMatch.Match)
+            var commitMatch = hasCommittedEventChange && ShouldRevalidateBeforeCommit(precomputedMatch.Candidates, precomputedMatch.Match)
                 ? await RecallAndMatchAsync(precomputedMatch.Item, now, cancellationToken)
                 : precomputedMatch;
             var targetEvent = await ResolveTargetEventAsync(
@@ -153,18 +153,16 @@ public sealed class EventMatcher : IEventMatcher
     }
 
     private bool ShouldRevalidateBeforeCommit(
-        ContentItem item,
         IReadOnlyList<EventCandidate> candidates,
         ClusterMatchResult match)
-        => !CanUseExistingTarget(item, candidates, match);
+        => !CanUseExistingTarget(candidates, match);
 
     private bool CanUseExistingTarget(
-        ContentItem item,
         IReadOnlyList<EventCandidate> candidates,
         ClusterMatchResult match)
     {
         var matchedCandidate = FindMatchedCandidate(candidates, match);
-        return CanMergeSameEvent(match, matchedCandidate) || CanMergeFollowUp(item, match, matchedCandidate);
+        return CanMergeSameEvent(match, matchedCandidate) || CanMergeFollowUp(match, matchedCandidate);
     }
 
     private bool CanMergeSameEvent(ClusterMatchResult match, EventCandidate? matchedCandidate)
@@ -172,11 +170,10 @@ public sealed class EventMatcher : IEventMatcher
             match.Confidence >= _config.Analysis.Event.MergeThreshold &&
             matchedCandidate is not null;
 
-    private bool CanMergeFollowUp(ContentItem item, ClusterMatchResult match, EventCandidate? matchedCandidate)
+    private bool CanMergeFollowUp(ClusterMatchResult match, EventCandidate? matchedCandidate)
         => match.Decision == ClusterDecisions.FollowUp &&
             match.Confidence >= _config.Analysis.Event.StaleMergeThreshold &&
-            matchedCandidate is not null &&
-            HasConservativeFollowUpSignal(item, matchedCandidate.Event);
+            matchedCandidate is not null;
 
     private async Task<EventMatchOutcome> ResolveTargetEventAsync(
         ContentItem item,
@@ -187,7 +184,7 @@ public sealed class EventMatcher : IEventMatcher
     {
         var matchedCandidate = FindMatchedCandidate(candidates, match);
         var canMergeSameEvent = CanMergeSameEvent(match, matchedCandidate);
-        var canMergeFollowUp = CanMergeFollowUp(item, match, matchedCandidate);
+        var canMergeFollowUp = CanMergeFollowUp(match, matchedCandidate);
 
         if (!canMergeSameEvent && !canMergeFollowUp)
         {
@@ -207,18 +204,6 @@ public sealed class EventMatcher : IEventMatcher
         => string.IsNullOrWhiteSpace(match.EventId)
             ? null
             : candidates.FirstOrDefault(candidate => candidate.Event.Id == match.EventId);
-
-    private static bool HasConservativeFollowUpSignal(ContentItem item, EventAggregate eventAggregate)
-    {
-        var incomingAnchors = ExtractStableAnchors(item.Title, item.Summary, item.HoverText);
-        if (incomingAnchors.Count == 0)
-        {
-            return false;
-        }
-
-        return HasAnchorOverlap(incomingAnchors, eventAggregate.Entities) ||
-            HasAnchorOverlap(incomingAnchors, eventAggregate.Aliases);
-    }
 
     private static EventAggregate CreateEvent(ContentItem item, ClusterMatchResult match, DateTimeOffset now)
     {
@@ -438,9 +423,6 @@ public sealed class EventMatcher : IEventMatcher
             (character >= '\u3400' && character <= '\u4DBF') ||
             (character >= '\u3040' && character <= '\u30FF') ||
             (character >= '\uAC00' && character <= '\uD7AF');
-
-    private static bool HasAnchorOverlap(IReadOnlyCollection<string> incomingAnchors, IReadOnlyCollection<string> existingAnchors)
-        => incomingAnchors.Any(anchor => existingAnchors.Any(existing => string.Equals(anchor, existing, StringComparison.OrdinalIgnoreCase)));
 
     private static readonly HashSet<string> StableAnchorStopWords = new(StringComparer.OrdinalIgnoreCase)
     {

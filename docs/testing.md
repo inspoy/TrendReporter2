@@ -1,6 +1,6 @@
 # 测试与回归说明
 
-V1M6 引入 xUnit 测试项目，覆盖核心规则、适配器解析、LiteDB 持久化、WebExtract 写回和回归样本。
+项目使用 xUnit 覆盖核心规则、适配器解析、PostgreSQL migration/仓储、WebExtract 写回和回归样本。
 
 ## 命令
 
@@ -28,11 +28,12 @@ dotnet test tests/TrendReporter2.Tests/TrendReporter2.Tests.csproj
 - `EventScoringService`：热度、趋势、资格、首次推送、重复推送、推送去重和黑名单阻断。
 - `DigestJob`：摘要推送日志、状态幂等和重复时段跳过。
 - `NewsNowClient`：`success/cache` 响应解析、坏条目跳过、fallback id。
-- `LiteDbInitializer` / `ContentIngestService`：临时 LiteDB 初始化、重复初始化、内容幂等更新和快照写入。
+- `SqlMigrationRunner` / PostgreSQL migration：migration 排序、checksum 校验、幂等执行和核心 schema 创建。
+- `PostgresContentRepository` / `PostgresEventRepository` / `PostgresAppStateRepository` / `PostgresFetchRunRepository`：内容幂等更新、快照写入、event item 去重、push log 去重、摘要候选、app state upsert 和 fetch run 状态更新。
 - `WebExtractEnrichmentClient` / `EnrichmentService`：先解析响应体再判断富化成败、响应解析、成功富化写回。
 - `UnipushPusher`：请求 URL、`Push-Key` 请求头和 JSON payload。
 
-所有外部服务测试都使用 fake `HttpMessageHandler`、stub client 或临时 LiteDB 路径，不依赖 `config.yaml`、真实密钥或运行期 `data/`。
+外部 HTTP 服务测试使用 fake `HttpMessageHandler` 或 stub client，不依赖 `config.yaml`、真实密钥或运行期 `data/`。PostgreSQL 集成测试需要设置 `TRENDREPORTER2_POSTGRES_TEST_CONNECTION`，测试会在临时 schema 中执行迁移并在结束时删除；未设置该变量时相关测试会直接返回。
 
 ## 回归样本
 

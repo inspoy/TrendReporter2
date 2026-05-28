@@ -35,7 +35,7 @@ public sealed class ProgramStartupMigrationTests
     }
 
     [Fact]
-    public async Task FetchOnce_InDevelopmentWhenMigrateOnStartupIsFalse_FailsFastBeforeResolvingUnimplementedRepositories()
+    public async Task FetchOnce_WhenMigrateOnStartupIsFalse_ResolvesRepositoriesAndAttemptsPostgresConnection()
     {
         using var directory = TempDirectory.Create();
         var configPath = WriteConfig(directory.Path, migrateOnStartup: false);
@@ -43,13 +43,14 @@ public sealed class ProgramStartupMigrationTests
         var result = await RunAppAsyncWithEnvironment("Development", "fetch-once", "--config", configPath);
 
         Assert.NotEqual(0, result.ExitCode);
-        Assert.Contains("PostgreSQL 仓储将在 M1 实现", result.CombinedOutput);
+        Assert.Contains("单次抓取模式已启动", result.CombinedOutput);
+        Assert.Contains("Failed to connect", result.CombinedOutput);
         Assert.DoesNotContain("AggregateException", result.CombinedOutput, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("Unable to resolve", result.CombinedOutput, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
-    public async Task DigestOnce_WhenMigrateOnStartupIsFalse_FailsFastBeforeResolvingUnimplementedRepositories()
+    public async Task DigestOnce_WhenMigrateOnStartupIsFalse_ResolvesRepositoriesAndAttemptsPostgresConnection()
     {
         using var directory = TempDirectory.Create();
         var configPath = WriteConfig(directory.Path, migrateOnStartup: false);
@@ -57,7 +58,8 @@ public sealed class ProgramStartupMigrationTests
         var result = await RunAppAsync("digest-once", "--config", configPath);
 
         Assert.NotEqual(0, result.ExitCode);
-        Assert.Contains("PostgreSQL 仓储将在 M1 实现", result.CombinedOutput);
+        Assert.Contains("单次摘要推送模式已启动", result.CombinedOutput);
+        Assert.Contains("Failed to connect", result.CombinedOutput);
         Assert.DoesNotContain("Unable to resolve", result.CombinedOutput, StringComparison.OrdinalIgnoreCase);
     }
 

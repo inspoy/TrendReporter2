@@ -9,11 +9,11 @@ TrendReporter2 的目标不是新闻阅读器，而是事件级趋势发现与�
 项目使用 .NET 8 构建，当前代码已具备以下能力：
 
 - 读取并校验 YAML 配置。
-- 初始化 PostgreSQL 数据库连接与 V2M0 基础迁移，创建后续 V2M1 主链路需要的表结构。
-- NewsNow 抓取、事件归并、评分和摘要链路的业务代码已保留；对应 PostgreSQL 仓储仍在 V2M1 实现，当前非 `validate` 运行模式会快速退出并提示该限制。
+- 初始化 PostgreSQL 数据库连接并执行 SQL migrations，创建并演进主链路表结构。
+- NewsNow 抓取、入库、富化、事件归并、评分、即时推送日志和摘要状态已接入 PostgreSQL/Dapper 仓储主路径。
 - 对需要补充上下文的新闻调用配置的网页抽取服务，写回摘要与增强状态。
 - 基于规则召回候选事件，并可通过 OpenAI 兼容的 Cluster LLM 辅助事件归并。
-- 支持配置校验；后台调度、单次抓取和单次摘要命令名保留，但需等待 V2M1 PostgreSQL 仓储接入后才可执行主链路。
+- 支持配置校验、后台调度、单次抓取和单次摘要命令；非 `validate` 模式需要可连接的 PostgreSQL。
 
 根据 [V1 里程碑文档](docs/v1-milestones.md)，V1M0-V1M6 的最小主链路与稳定性补齐已具备：事件评分、即时推送、定时摘要、黑名单降噪、基础测试和回归样本已落地。
 
@@ -114,7 +114,7 @@ dotnet run --project src/TrendReporter2.App/TrendReporter2.App.csproj -- validat
 
 ### 5. 执行一次抓取
 
-V2M0 当前仅完成 PostgreSQL 连接和迁移基础，`fetch-once` 会在启动迁移后提示 PostgreSQL 仓储将在 V2M1 实现，并以非零状态退出；不会回退到 LiteDB。
+`fetch-once` 会按配置执行启动迁移，然后运行抓取、内容入库、富化、事件归并、评分和推送日志写入。该路径使用 PostgreSQL/Dapper 仓储；如果 `database.connectionString` 指向的数据库不可用，会在启动迁移或首次仓储访问时报错退出，不会回退到 LiteDB。
 
 ```bash
 dotnet run --project src/TrendReporter2.App/TrendReporter2.App.csproj -- fetch-once
@@ -122,17 +122,15 @@ dotnet run --project src/TrendReporter2.App/TrendReporter2.App.csproj -- fetch-o
 
 ### 6. 启动后台服务
 
-后台服务同样会在 V2M0 阶段快速退出，等待 V2M1 接入抓取、事件、评分、推送和摘要所需的 PostgreSQL 仓储。
+后台服务启动后会立即执行一轮抓取，之后按 `analysis.fetchInterval` 周期运行。摘要调度器会按 `analysis.push.pushTime` 触发摘要任务，并通过 `app_state` 和 `push_log` 控制同一时段幂等。
 
 ```bash
 dotnet run --project src/TrendReporter2.App/TrendReporter2.App.csproj
 ```
 
-V2M1 仓储完成后，后台服务启动会立即执行一轮抓取，之后按 `analysis.fetchInterval` 周期运行。摘要调度器会按 `analysis.push.pushTime` 触发摘要任务，并通过 `app_state` 和 `push_log` 控制同一时段幂等。
-
 执行一次摘要：
 
-V2M0 阶段 `digest-once` 与 `fetch-once` 一样会快速提示仓储尚未实现。
+`digest-once` 会从 PostgreSQL 查询摘要候选，写入 `push_log`，并使用 `app_state` 标记对应日期/时段已处理。
 
 ```bash
 dotnet run --project src/TrendReporter2.App/TrendReporter2.App.csproj -- digest-once
@@ -170,7 +168,7 @@ python newsnow_fetch_test.py
 
 ## 数据库
 
-V1 使用 LiteDB 作为数据库，但 V2M0 已切换为 PostgreSQL 基础配置和启动迁移，数据库结构由迁移脚本创建。抓取、事件、评分、推送日志和摘要状态的 PostgreSQL 仓储仍属 V2M1 范围；在这些仓储完成前，运行期主链路不会写入 PostgreSQL，也不会回退到 LiteDB。`config.example.yaml` 里的连接串仅是本地占位值，不包含真实凭据。
+V1 使用 LiteDB 作为数据库；V2 主路径使用 PostgreSQL。数据库结构由 SQL migration 创建和演进，抓取、内容、快照、事件、评分、推送日志、运行记录和摘要状态都通过 PostgreSQL/Dapper 仓储读写。`config.example.yaml` 里的连接串仅是本地占位值，不包含真实凭据。
 
 ## 测试与验证
 
@@ -184,7 +182,7 @@ dotnet test TrendReporter2.sln --configuration Release --no-build --disable-buil
 dotnet run --project src/TrendReporter2.App/TrendReporter2.App.csproj -- validate --config config.example.yaml
 ```
 
-测试不依赖真实外部服务：HTTP 适配器使用 fake handler，持久化测试使用临时 LiteDB 文件，回归样本位于 `tests/TrendReporter2.Tests/Fixtures/regression-corpus.json`。更多说明见 [测试与回归说明](docs/testing.md)。
+测试不依赖真实外部 HTTP 服务：HTTP 适配器使用 fake handler。PostgreSQL 集成测试通过 `TRENDREPORTER2_POSTGRES_TEST_CONNECTION` 启用；未设置时会跳过真实数据库执行。回归样本位于 `tests/TrendReporter2.Tests/Fixtures/regression-corpus.json`。更多说明见 [测试与回归说明](docs/testing.md)。
 
 ## 详细文档
 

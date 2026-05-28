@@ -6,6 +6,7 @@ using TrendReporter2.Core.Enrichment;
 using TrendReporter2.Core.Events;
 using TrendReporter2.Core.Jobs;
 using TrendReporter2.Core.News;
+using TrendReporter2.App.Scheduling;
 using TrendReporter2.Infrastructure;
 using TrendReporter2.Infrastructure.Enrichment;
 using TrendReporter2.Infrastructure.Configuration;
@@ -54,18 +55,19 @@ builder.Services.AddHttpClient<IEnrichmentClient, WebExtractEnrichmentClient>();
 builder.Services.AddHttpClient<IClusterLlmClient, ClusterLlmClient>();
 builder.Services.AddHttpClient<IJudgeLlmClient, JudgeLlmClient>();
 builder.Services.AddHttpClient<IPusher, UnipushPusher>();
+builder.Services.AddSingleton<IFetchJob, FetchJob>();
+builder.Services.AddSingleton<IDigestJob, DigestJob>();
+if (options.Background)
+{
+    builder.Services.AddHostedService<FetchSchedulerService>();
+    builder.Services.AddHostedService<DigestSchedulerService>();
+}
 
 using var host = builder.Build();
 var logger = host.Services.GetRequiredService<ILoggerFactory>().CreateLogger("TrendReporter2.App");
 
 LogConfigSummary(logger, config, options);
 if (!await TryRunStartupMigrationsAsync(host.Services, config, logger, Console.Error, CancellationToken.None))
-{
-    Environment.ExitCode = 1;
-    return;
-}
-
-if (!TryEnsureRuntimeRepositoriesImplemented(logger, Console.Error))
 {
     Environment.ExitCode = 1;
     return;
@@ -92,7 +94,7 @@ if (options.DigestOnce)
 }
 
 logger.LogInformation("TrendReporter2 后台服务启动中。");
-    await host.RunAsync();
+await host.RunAsync();
 
 static async Task<bool> TryRunStartupMigrationsAsync(
     IServiceProvider services,
@@ -114,14 +116,6 @@ static async Task<bool> TryRunStartupMigrationsAsync(
     }
 }
 
-static bool TryEnsureRuntimeRepositoriesImplemented(ILogger logger, TextWriter errorWriter)
-{
-    const string message = "M0 PostgreSQL 基础迁移已就绪，但抓取/后台/摘要所需的 PostgreSQL 仓储将在 M1 实现；当前非 validate 运行模式暂不可用。";
-    logger.LogCritical(message);
-    errorWriter.WriteLine(message);
-    return false;
-}
-
 static void LogConfigSummary(ILogger logger, AppConfig config, CliOptions options)
 {
     var sourceCount = config.NewsNow.Sources.Values.Sum(sources => sources.Count);
@@ -141,6 +135,8 @@ internal sealed record CliOptions(string ConfigPath, CliMode Mode)
     public bool FetchOnce => Mode == CliMode.FetchOnce;
 
     public bool DigestOnce => Mode == CliMode.DigestOnce;
+
+    public bool Background => Mode == CliMode.Background;
 
     public static CliOptions Parse(string[] args)
     {

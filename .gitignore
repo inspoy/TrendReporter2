@@ -2,6 +2,7 @@
 .claude
 .idea
 .sisyphus
+.omo
 config.yaml
 bin/
 obj/

@@ -1,8 +1,13 @@
 using Microsoft.Extensions.DependencyInjection;
+using Dapper;
 using Npgsql;
 using TrendReporter2.Core.Configuration;
+using TrendReporter2.Core.Content;
 using TrendReporter2.Core.Enrichment;
+using TrendReporter2.Core.Events;
+using TrendReporter2.Core.Fetch;
 using TrendReporter2.Infrastructure.Configuration;
+using TrendReporter2.Infrastructure.Enrichment;
 using TrendReporter2.Infrastructure.Persistence;
 
 namespace TrendReporter2.Infrastructure;
@@ -11,6 +16,8 @@ public static class DependencyInjection
 {
     public static IServiceCollection AddTrendReporterInfrastructure(this IServiceCollection services)
     {
+        DefaultTypeMap.MatchNamesWithUnderscores = true;
+
         services.AddSingleton<IAppConfigLoader, YamlAppConfigLoader>();
         services.AddSingleton(static serviceProvider =>
         {
@@ -25,6 +32,15 @@ public static class DependencyInjection
         });
         services.AddSingleton<SqlMigrationRunner>();
         services.AddSingleton<IEnrichmentPolicy, EnrichmentPolicy>();
+        services.AddSingleton<PostgresContentRepository>();
+        services.AddSingleton<IContentIngestService>(static serviceProvider => serviceProvider.GetRequiredService<PostgresContentRepository>());
+        services.AddSingleton<IEnrichmentService, EnrichmentService>();
+        services.AddSingleton<IEventRepository, PostgresEventRepository>();
+        services.AddSingleton<IAppStateRepository, PostgresAppStateRepository>();
+        services.AddSingleton<IFetchRunRepository, PostgresFetchRunRepository>();
+        services.AddSingleton<IEventCandidateService, EventCandidateService>();
+        services.AddSingleton<IEventMatcher, EventMatcher>();
+        services.AddSingleton<IEventScoringService, EventScoringService>();
 
         return services;
     }
