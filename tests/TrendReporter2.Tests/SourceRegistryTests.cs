@@ -6,82 +6,10 @@ namespace TrendReporter2.Tests;
 public sealed class SourceRegistryTests
 {
     [Fact]
-    public void GetEnabledSources_MapsLegacyNewsNowSourcesWhenNoEquivalentNewItemExists()
-    {
-        var config = new AppConfig
-        {
-            NewsNow = new NewsNowConfig
-            {
-                BaseUrl = "https://news.local",
-                Sources = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase)
-                {
-                    ["china"] = ["ifeng"]
-                }
-            }
-        };
-
-        var registry = new SourceRegistry(config);
-
-        var source = Assert.Single(registry.GetEnabledSources());
-        Assert.Equal("newsnow:china:ifeng", source.Id);
-        Assert.Equal(SourceProviders.NewsNow, source.Provider);
-        Assert.Equal("ifeng", source.ExternalId);
-        Assert.Equal("china", source.Category);
-        Assert.Equal("ifeng", source.DisplayName);
-        Assert.Equal(ContentKind.RankedNews, source.ContentKind);
-        Assert.True(source.Enabled);
-        Assert.Equal(1.0, source.Weight);
-    }
-
-    [Fact]
-    public void GetSources_DoesNotAddLegacyNewsNowSourceWhenEquivalentNewItemExists()
-    {
-        var config = new AppConfig
-        {
-            NewsNow = new NewsNowConfig
-            {
-                BaseUrl = "https://news.local",
-                Sources = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase)
-                {
-                    ["china"] = ["ifeng"]
-                }
-            },
-            Sources = new SourcesConfig
-            {
-                NewsNow = new SourceProviderConfig
-                {
-                    BaseUrl = "https://news.local",
-                    Items =
-                    [
-                        new SourceItemConfig
-                        {
-                            Id = "custom-newsnow-ifeng",
-                            ExternalId = "ifeng",
-                            Category = "china",
-                            DisplayName = "凤凰网",
-                            ContentKind = ContentKind.RankedNews,
-                            Enabled = false,
-                            Weight = 2.0
-                        }
-                    ]
-                }
-            }
-        };
-
-        var registry = new SourceRegistry(config);
-
-        var source = Assert.Single(registry.GetSources());
-        Assert.Equal("custom-newsnow-ifeng", source.Id);
-        Assert.False(source.Enabled);
-        Assert.Empty(registry.GetEnabledSources());
-    }
-
-    [Fact]
     public void GetEnabledSourcesByProvider_GroupsEnabledDailyHotApiRankedAndFlashSources()
     {
         var config = new AppConfig
         {
-            NewsNow = new NewsNowConfig { BaseUrl = "https://news.local" },
             Sources = new SourcesConfig
             {
                 DailyHotApi = new SourceProviderConfig

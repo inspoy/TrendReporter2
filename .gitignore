@@ -1,6 +1,7 @@
 .codex
 .claude
 .idea
+.vscode
 .sisyphus
 .omo
 config.yaml

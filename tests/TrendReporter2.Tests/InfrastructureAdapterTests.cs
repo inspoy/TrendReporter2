@@ -29,9 +29,10 @@ public sealed class InfrastructureAdapterTests
           ]
         }
         """));
-        var client = new NewsNowClient(new HttpClient(handler), new AppConfig { NewsNow = new NewsNowConfig { BaseUrl = "https://news.local" } }, NullLoggerFactory.Instance);
+        IContentSourceClient client = new NewsNowClient(new HttpClient(handler), new AppConfig { NewsNow = new NewsNowConfig { BaseUrl = "https://news.local" } }, NullLoggerFactory.Instance);
 
-        var items = await client.FetchAsync("tech", "source-a", CancellationToken.None);
+        var source = new SourceDefinition("newsnow:tech:source-a", SourceProviders.NewsNow, "source-a", "tech", "source-a", ContentKind.RankedNews, true, 1.0);
+        var items = await client.FetchAsync(source, CancellationToken.None);
 
         Assert.Equal(2, items.Count);
         Assert.Equal("https://news.local/api/s?id=source-a", handler.Requests.Single().RequestUri?.ToString());

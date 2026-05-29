@@ -1,0 +1,620 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://trendreporter2/config.schema.json",
+  "title": "TrendReporter2 Configuration",
+  "description": "TrendReporter2 配置文件 Schema — 用于 YAML 智能补全与校验",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "JSON Schema 引用 (IDE 自动识别，无需手动填写)"
+    },
+    "newsNow": {
+      "$ref": "#/$defs/NewsNowConfig",
+      "description": "【已废弃】旧版 NewsNow 配置；请使用 sources.newsNow 替代"
+    },
+    "sources": {
+      "$ref": "#/$defs/SourcesConfig",
+      "description": "信源配置 — NewsNow 和 DailyHotApi 的信源列表"
+    },
+    "database": {
+      "$ref": "#/$defs/DatabaseConfig",
+      "description": "数据库连接与迁移配置"
+    },
+    "analysis": {
+      "$ref": "#/$defs/AnalysisConfig",
+      "description": "抓取、事件分析、推送与摘要相关参数"
+    },
+    "llm": {
+      "$ref": "#/$defs/LlmConfig",
+      "description": "LLM 模型配置 — 事件归并、重要性判定、摘要补足"
+    },
+    "enrichment": {
+      "$ref": "#/$defs/EnrichmentConfig",
+      "description": "网页抽取增强服务配置"
+    },
+    "filters": {
+      "$ref": "#/$defs/FilterConfig",
+      "description": "内容过滤规则"
+    },
+    "pushers": {
+      "$ref": "#/$defs/PushersConfig",
+      "description": "推送通道列表"
+    },
+    "system": {
+      "$ref": "#/$defs/SystemConfig",
+      "description": "系统级参数 — 时区、并发限制"
+    }
+  },
+  "required": [
+    "sources",
+    "database",
+    "analysis",
+    "llm",
+    "enrichment",
+    "filters",
+    "system",
+    "pushers"
+  ],
+  "$defs": {
+    "NewsNowConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "baseUrl": {
+          "type": "string",
+          "description": "NewsNow 服务地址",
+          "default": ""
+        },
+        "sources": {
+          "type": "object",
+          "description": "按 category 分组的信源列表 (旧格式)",
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "SourcesConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "newsNow": {
+          "$ref": "#/$defs/SourceProviderConfig",
+          "description": "NewsNow 信源提供方配置"
+        },
+        "dailyHotApi": {
+          "$ref": "#/$defs/SourceProviderConfig",
+          "description": "DailyHotApi 信源提供方配置"
+        }
+      },
+      "required": [
+        "newsNow",
+        "dailyHotApi"
+      ]
+    },
+    "SourceProviderConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "baseUrl": {
+          "type": "string",
+          "description": "信源服务地址；当 items 中存在 enabled 的信源时必填",
+          "default": ""
+        },
+        "items": {
+          "type": "array",
+          "description": "信源条目列表",
+          "items": {
+            "$ref": "#/$defs/SourceItemConfig"
+          }
+        }
+      },
+      "required": [
+        "baseUrl",
+        "items"
+      ]
+    },
+    "SourceItemConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "全局唯一标识，格式: provider:category:source (例: newsnow:social:weibo)",
+          "minLength": 1
+        },
+        "externalId": {
+          "type": "string",
+          "description": "外部 API 中使用的信源标识",
+          "minLength": 1
+        },
+        "param": {
+          "type": "string",
+          "description": "可选 — 额外参数，拼接到url里"
+        },
+        "category": {
+          "type": "string",
+          "description": "信源分类 (如 china, social, tech, world, finance)",
+          "minLength": 1
+        },
+        "displayName": {
+          "type": "string",
+          "description": "展示名称",
+          "default": ""
+        },
+        "contentKind": {
+          "type": "string",
+          "description": "内容类型",
+          "enum": [
+            "ranked_news",
+            "flash_feed",
+            "topic"
+          ]
+        },
+        "enabled": {
+          "type": "boolean",
+          "description": "是否启用该信源",
+          "default": true
+        },
+        "weight": {
+          "type": "number",
+          "description": "权重，用于计算事件热度时的信源影响因子",
+          "default": 1.0,
+          "exclusiveMinimum": 0
+        }
+      },
+      "required": [
+        "externalId",
+        "category",
+        "contentKind",
+        "enabled",
+        "weight"
+      ]
+    },
+    "DatabaseConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "provider": {
+          "type": "string",
+          "description": "数据库提供方 (当前仅支持 postgres)",
+          "const": "postgres"
+        },
+        "connectionString": {
+          "type": "string",
+          "description": "PostgreSQL 连接字符串",
+          "minLength": 1
+        },
+        "migrateOnStartup": {
+          "type": "boolean",
+          "description": "启动时是否自动执行数据库迁移",
+          "default": true
+        }
+      },
+      "required": [
+        "provider",
+        "connectionString"
+      ]
+    },
+    "AnalysisConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "fetchInterval": {
+          "type": "integer",
+          "description": "抓取间隔 (秒)；后台模式下每 fetchInterval 秒执行一轮",
+          "default": 3600,
+          "exclusiveMinimum": 0
+        },
+        "historyHours": {
+          "type": "integer",
+          "description": "分析窗口 (小时)；保留最近 historyHours 小时的数据用于分析",
+          "default": 24,
+          "exclusiveMinimum": 0
+        },
+        "push": {
+          "$ref": "#/$defs/PushConfig"
+        },
+        "event": {
+          "$ref": "#/$defs/EventAnalysisConfig"
+        },
+        "repeatPush": {
+          "$ref": "#/$defs/RepeatPushConfig"
+        }
+      },
+      "required": [
+        "fetchInterval",
+        "historyHours",
+        "push",
+        "event",
+        "repeatPush"
+      ]
+    },
+    "PushConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "pushTime": {
+          "type": "array",
+          "description": "每日摘要推送时间，格式 HH:mm",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$",
+            "examples": [
+              "09:20",
+              "18:20"
+            ]
+          }
+        },
+        "pushCount": {
+          "type": "integer",
+          "description": "每次推送的事件数量上限",
+          "default": 5,
+          "exclusiveMinimum": 0
+        }
+      },
+      "required": [
+        "pushTime",
+        "pushCount"
+      ]
+    },
+    "EventAnalysisConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "sourceCount": {
+          "type": "integer",
+          "description": "信源阈值 — 至少需要 sourceCount 个不同信源报道同一事件才认为事件可信",
+          "default": 3,
+          "exclusiveMinimum": 0
+        },
+        "normalizedRankThreshold": {
+          "type": "number",
+          "description": "排名阈值 — 源内归一化后的平均排名分高于此值才纳入事件候选",
+          "default": 0.75,
+          "minimum": 0,
+          "maximum": 1
+        },
+        "trendWindowHours": {
+          "type": "integer",
+          "description": "趋势窗口 (小时) — 事件在此时间窗口内热度整体上升才判定为趋势事件",
+          "default": 6,
+          "exclusiveMinimum": 0
+        },
+        "staleHours": {
+          "type": "integer",
+          "description": "陈旧事件阈值 (小时) — 超过此时间未被新信源报道的事件视为陈旧",
+          "default": 24,
+          "exclusiveMinimum": 0
+        },
+        "archiveRecallDays": {
+          "type": "integer",
+          "description": "陈旧事件召回窗口 (天) — 避免旧事件被切割为新事件，仅召回此窗口内的陈旧事件",
+          "default": 30,
+          "exclusiveMinimum": 0
+        },
+        "candidateLimit": {
+          "type": "integer",
+          "description": "单条新闻的事件候选上限 — 每条新闻最多召回 candidateLimit 个候选事件",
+          "default": 20,
+          "exclusiveMinimum": 0
+        },
+        "mergeThreshold": {
+          "type": "number",
+          "description": "活跃事件在线归并阈值 — 相似度高于此值则归并到已有活跃事件",
+          "default": 0.82,
+          "minimum": 0,
+          "maximum": 1
+        },
+        "staleMergeThreshold": {
+          "type": "number",
+          "description": "陈旧/复活事件在线归并阈值 — 应高于普通归并阈值以避免误归并",
+          "default": 0.88,
+          "minimum": 0,
+          "maximum": 1
+        },
+        "minTrendSamples": {
+          "type": "integer",
+          "description": "趋势判定最小样本数",
+          "default": 3,
+          "exclusiveMinimum": 0
+        },
+        "minTrendHeat": {
+          "type": "number",
+          "description": "趋势判定最小累计热度",
+          "default": 1.5,
+          "minimum": 0
+        }
+      },
+      "required": [
+        "sourceCount",
+        "normalizedRankThreshold",
+        "trendWindowHours",
+        "staleHours",
+        "archiveRecallDays",
+        "candidateLimit",
+        "mergeThreshold",
+        "staleMergeThreshold",
+        "minTrendSamples",
+        "minTrendHeat"
+      ]
+    },
+    "RepeatPushConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "sourceAddThreshold": {
+          "type": "integer",
+          "description": "信源增加阈值 — 事件被 sourceAddThreshold 个以上新信源报道时二次推送",
+          "default": 2
+        },
+        "rankScoreImproveThreshold": {
+          "type": "number",
+          "description": "归一化排名分提升阈值 — 排名分提升超过此值时二次推送",
+          "default": 0.15
+        },
+        "scoreImproveThreshold": {
+          "type": "number",
+          "description": "综合分提升阈值 — 综合分提升超过此值时二次推送",
+          "default": 12
+        }
+      },
+      "required": [
+        "sourceAddThreshold",
+        "rankScoreImproveThreshold",
+        "scoreImproveThreshold"
+      ]
+    },
+    "LlmConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "cluster": {
+          "$ref": "#/$defs/LlmEndpointConfig",
+          "description": "事件归并 LLM — 判断多条新闻是否属于同一事件"
+        },
+        "judge": {
+          "$ref": "#/$defs/LlmEndpointConfig",
+          "description": "重要性判定 LLM — 修正事件重要性评分与标签"
+        },
+        "writer": {
+          "$ref": "#/$defs/LlmEndpointConfig",
+          "description": "摘要补足 LLM — 为标题信息不足的新闻生成摘要"
+        }
+      },
+      "required": [
+        "cluster",
+        "judge",
+        "writer"
+      ]
+    },
+    "LlmEndpointConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "baseUrl": {
+          "type": "string",
+          "description": "兼容 OpenAI API 的地址，程序自动拼接 /v1/chat/completions",
+          "default": ""
+        },
+        "apiKey": {
+          "type": "string",
+          "description": "API Key",
+          "default": ""
+        },
+        "model": {
+          "type": "string",
+          "description": "模型名称",
+          "default": ""
+        },
+        "maxTokens": {
+          "type": "integer",
+          "description": "最大输出 Token 数",
+          "default": 2048
+        },
+        "pricing": {
+          "$ref": "#/$defs/LLmPricingConfig",
+          "description": "可选 — 每百万 Token 价格，用于成本统计与控制"
+        }
+      },
+      "required": [
+        "baseUrl",
+        "apiKey",
+        "model",
+        "maxTokens"
+      ]
+    },
+    "LLmPricingConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "cacheRead": {
+          "type": "number",
+          "description": "缓存读取价格 (USD / 百万 Token) — 必须为非负有限数字",
+          "default": 0,
+          "minimum": 0
+        },
+        "input": {
+          "type": "number",
+          "description": "输入价格 (USD / 百万 Token) — 必须为非负有限数字",
+          "default": 0,
+          "minimum": 0
+        },
+        "output": {
+          "type": "number",
+          "description": "输出价格 (USD / 百万 Token) — 必须为非负有限数字",
+          "default": 0,
+          "minimum": 0
+        }
+      }
+    },
+    "EnrichmentConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "webExtractUrl": {
+          "type": "string",
+          "description": "网页抽取服务地址；为空时增强功能不可用。旧版 YAML 键名 web_extract_url 由加载器自动转换为 webExtractUrl",
+          "default": ""
+        },
+        "enabledSources": {
+          "type": "array",
+          "description": "强制启用增强服务的信源 externalId 列表",
+          "default": [],
+          "items": {
+            "type": "string"
+          }
+        },
+        "disabledSources": {
+          "type": "array",
+          "description": "禁止使用增强服务的信源 externalId 列表",
+          "default": [],
+          "items": {
+            "type": "string"
+          }
+        },
+        "maxRequestsPerRun": {
+          "type": "integer",
+          "description": "单轮增强请求预算上限",
+          "default": 5,
+          "minimum": 0
+        },
+        "minTitleLength": {
+          "type": "integer",
+          "description": "标题字符数低于此值的新闻需要增强（中文按字符数计）",
+          "default": 14,
+          "exclusiveMinimum": 0
+        },
+        "onlyWhenRecallWeak": {
+          "type": "boolean",
+          "description": "仅当召回弱时增强 (暂未启用)",
+          "default": true
+        },
+        "recallWeakScoreThreshold": {
+          "type": "number",
+          "description": "首轮召回最高分低于此值时触发增强",
+          "default": 0.35,
+          "minimum": 0,
+          "maximum": 1
+        },
+        "retryCooldownHours": {
+          "type": "integer",
+          "description": "增强失败冷却时间 (小时) — 此窗口内不再重试同一新闻",
+          "default": 12,
+          "minimum": 0
+        }
+      },
+      "required": [
+        "webExtractUrl",
+        "enabledSources",
+        "disabledSources",
+        "maxRequestsPerRun",
+        "minTitleLength",
+        "recallWeakScoreThreshold",
+        "retryCooldownHours"
+      ]
+    },
+    "FilterConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "blacklistKeywords": {
+          "type": "array",
+          "description": "黑名单关键词 — 事件标题/摘要包含任一关键词则屏蔽该事件",
+          "default": [],
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "blacklistKeywords"
+      ]
+    },
+    "PushersConfig": {
+      "type": "array",
+      "description": "推送通道列表，支持多个推送目标",
+      "items": {
+        "$ref": "#/$defs/PusherConfig"
+      }
+    },
+    "PusherConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "type": "string",
+          "description": "推送类型 (如 unipush)",
+          "default": ""
+        },
+        "url": {
+          "type": "string",
+          "description": "推送服务 URL",
+          "default": ""
+        },
+        "secret": {
+          "type": "string",
+          "description": "推送密钥",
+          "default": ""
+        },
+        "cate": {
+          "type": "string",
+          "description": "推送分类/频道标识",
+          "default": "default"
+        },
+        "channels": {
+          "type": "string",
+          "description": "目标渠道 (如 gotify, wecom 等)",
+          "default": ""
+        }
+      },
+      "required": [
+        "type",
+        "url",
+        "secret",
+        "channels"
+      ]
+    },
+    "SystemConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "timeZone": {
+          "type": "string",
+          "description": "调度时区 (IANA 时区标识，如 Asia/Shanghai、America/New_York)",
+          "default": "Asia/Shanghai"
+        },
+        "maxParallelFetch": {
+          "type": "integer",
+          "description": "最大并行抓取数",
+          "default": 4,
+          "exclusiveMinimum": 0
+        },
+        "maxParallelEnrichment": {
+          "type": "integer",
+          "description": "最大并行增强请求数",
+          "default": 3,
+          "exclusiveMinimum": 0
+        },
+        "maxParallelLlm": {
+          "type": "integer",
+          "description": "最大并行 LLM 请求数",
+          "default": 2,
+          "exclusiveMinimum": 0
+        }
+      },
+      "required": [
+        "timeZone",
+        "maxParallelFetch",
+        "maxParallelEnrichment",
+        "maxParallelLlm"
+      ]
+    }
+  }
+}

@@ -11,7 +11,6 @@ public static class AppConfigValidator
 
         var errors = new List<string>();
 
-        Require(!string.IsNullOrWhiteSpace(config.NewsNow.BaseUrl), "newsNow.baseUrl 不能为空。");
         ValidateSourceProvider("sources.newsNow", config.Sources.NewsNow);
         ValidateSourceProvider("sources.dailyHotApi", config.Sources.DailyHotApi);
 
@@ -106,7 +105,6 @@ public static class AppConfigValidator
                 var item = providerConfig.Items[index];
                 var itemPath = $"{path}.items[{index}]";
 
-                Require(!string.IsNullOrWhiteSpace(item.Id), $"{itemPath}.id 不能为空。");
                 Require(!string.IsNullOrWhiteSpace(item.ExternalId), $"{itemPath}.externalId 不能为空。");
                 Require(!string.IsNullOrWhiteSpace(item.Category), $"{itemPath}.category 不能为空。");
                 Require(!string.IsNullOrWhiteSpace(item.ContentKind), $"{itemPath}.contentKind 不能为空。");

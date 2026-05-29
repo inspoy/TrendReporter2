@@ -1,65 +1,27 @@
+# yaml-language-server: $schema=./config.schema.json
 newsNow:
   baseUrl: "http://localhost:3000"
-  sources:
-    china:
-      - ifeng
-      - thepaper
-      - tencent
-      - zaobao
-    social:
-      - baidu
-      - weibo
-      - zhihu
-      - douyin
-      - tieba
-      - hupu
-      - bilibili
-    tech:
-      - coolapk
-      - ithome
-      - solidot
-      - hackernews
-    world:
-      - sputniknewscn
-      - cankaoxiaoxi
-    finance:
-      - wallstreetcn-hot
-      - cls-hot
-      - jin10
 
 sources:
   newsNow:
     baseUrl: "http://localhost:3000"
+    # id 可选；不填时自动推导为 "{provider}:{category}:{externalId}"
     items:
-      - id: "newsnow:china:ifeng"
-        externalId: "ifeng"
+      - externalId: "ifeng"
         category: "china"
         displayName: "凤凰网"
         contentKind: "ranked_news"
         enabled: true
         weight: 1.0
-      - id: "newsnow:tech:hackernews"
-        externalId: "hackernews"
-        category: "tech"
-        displayName: "Hacker News"
-        contentKind: "ranked_news"
-        enabled: true
-        weight: 1.0
   dailyHotApi:
     baseUrl: "http://localhost:6688"
+    # id 可选；不填时自动推导为 "{provider}:{category}:{externalId}"
     items:
-      - id: "dailyhotapi:social:weibo"
-        externalId: "weibo"
+      - externalId: "nytimes"
+        param: "type=global"
         category: "social"
-        displayName: "微博热搜"
+        displayName: "纽约时报全球版"
         contentKind: "ranked_news"
-        enabled: true
-        weight: 1.0
-      - id: "dailyhotapi:flash:cls-telegraph"
-        externalId: "cls-telegraph"
-        category: "finance"
-        displayName: "财联社电报"
-        contentKind: "flash_feed"
         enabled: true
         weight: 1.0
 
@@ -114,7 +76,7 @@ llm:
     maxTokens: 1024
 
 enrichment:
-  web_extract_url: "" # 自定义的web页抓取服务
+  webExtractUrl: "" # 自定义的web页抓取服务
   enabledSources: [] # 这些信源必使用增强服务，其他的再后续判断
   disabledSources: [] # 这些信源禁止使用增强服务
   maxRequestsPerRun: 5 # 每次分析最多调用增强服务的次数

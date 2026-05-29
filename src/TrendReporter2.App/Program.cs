@@ -5,7 +5,6 @@ using TrendReporter2.Core.Configuration;
 using TrendReporter2.Core.Enrichment;
 using TrendReporter2.Core.Events;
 using TrendReporter2.Core.Jobs;
-using TrendReporter2.Core.News;
 using TrendReporter2.Core.Sources;
 using TrendReporter2.App.Scheduling;
 using TrendReporter2.Infrastructure;
@@ -51,7 +50,6 @@ builder.Logging.AddFilter("Microsoft.Extensions.Http", LogLevel.Warning);
 builder.Services.AddSingleton(config);
 builder.Services.AddTrendReporterInfrastructure();
 builder.Services.AddHttpClient();
-builder.Services.AddHttpClient<INewsSourceClient, NewsNowClient>();
 builder.Services.AddHttpClient<NewsNowClient>();
 builder.Services.AddSingleton<IContentSourceClient>(static serviceProvider => serviceProvider.GetRequiredService<NewsNowClient>());
 builder.Services.AddHttpClient<DailyHotApiClient>();
@@ -123,13 +121,15 @@ static async Task<bool> TryRunStartupMigrationsAsync(
 
 static void LogConfigSummary(ILogger logger, AppConfig config, CliOptions options)
 {
-    var sourceCount = config.NewsNow.Sources.Values.Sum(sources => sources.Count);
+    var registry = new SourceRegistry(config);
+    var sourceCount = registry.GetSources().Count;
+    var enabledCount = registry.GetEnabledSources().Count;
     logger.LogInformation(
-        "配置已从 {ConfigPath} 加载。NewsNowBaseUrl={NewsNowBaseUrl}，分类数={CategoryCount}，来源数={SourceCount}，抓取间隔秒={FetchInterval}。",
+        "配置已从 {ConfigPath} 加载。NewsNowBaseUrl={NewsNowBaseUrl}，配置信源数={SourceCount}，启用的信源数={EnabledCount}，抓取间隔秒={FetchInterval}。",
         options.ConfigPath,
         config.NewsNow.BaseUrl,
-        config.NewsNow.Sources.Count,
         sourceCount,
+        enabledCount,
         config.Analysis.FetchInterval);
 }
 

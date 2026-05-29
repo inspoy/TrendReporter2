@@ -204,7 +204,6 @@ public sealed class AppConfigValidatorTests
     private static AppConfig ValidConfig()
         => new()
         {
-            NewsNow = new NewsNowConfig { BaseUrl = "https://news.local" },
             Database = new DatabaseConfig
             {
                 Provider = "postgres",
