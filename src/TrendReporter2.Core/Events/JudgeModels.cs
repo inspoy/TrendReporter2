@@ -1,6 +1,7 @@
 namespace TrendReporter2.Core.Events;
 
 public sealed record JudgeRequest(
+    string? RunId,
     EventAggregate Event,
     EventScore Score,
     IReadOnlyList<RunEventContentEvidence> Evidence,

@@ -7,6 +7,7 @@ using TrendReporter2.Core.Enrichment;
 using TrendReporter2.Core.Events;
 using TrendReporter2.Core.Fetch;
 using TrendReporter2.Core.News;
+using TrendReporter2.Core.Observability;
 using TrendReporter2.Infrastructure.Persistence;
 
 namespace TrendReporter2.Tests;
@@ -192,6 +193,73 @@ public sealed class PostgresRepositoryIntegrationTests
         Assert.Single(scoringInputs);
         Assert.Single(digestCandidates);
         Assert.Equal("second", state?.Value);
+    }
+
+    [Fact]
+    [Trait("Category", "PostgresIntegration")]
+    public async Task RunTelemetryRecorder_WhenPostgresIsAvailable_WritesSourceStageAndLlmUsage()
+    {
+        await using var fixture = await PostgresFixture.CreateAsync();
+        if (fixture is null)
+        {
+            return;
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        var fetchRuns = new PostgresFetchRunRepository(fixture.DataSource);
+        var telemetry = new PostgresRunTelemetryRecorder(fixture.DataSource);
+        var run = await fetchRuns.CreateAsync(1, now, CancellationToken.None);
+
+        await telemetry.RecordSourceAsync(new RunSourceTelemetry(
+            run.Id,
+            "tech/source-a",
+            "tech",
+            "source-a",
+            RunTelemetryStatuses.Succeeded,
+            123,
+            5,
+            null,
+            now), CancellationToken.None);
+        await telemetry.RecordStageAsync(new RunStageTelemetry(
+            "frs:test:1",
+            run.Id,
+            RunStageNames.Fetch,
+            now,
+            now.AddMilliseconds(123),
+            123,
+            RunTelemetryStatuses.Succeeded,
+            null), CancellationToken.None);
+        await telemetry.RecordLlmUsageAsync(new LlmUsageRecord(
+            "lu:test:1",
+            run.Id,
+            LlmUsageStages.Cluster,
+            "model-a",
+            "chatcmpl-1",
+            null,
+            null,
+            1000,
+            500,
+            200,
+            0.00170000m,
+            321,
+            true,
+            1,
+            null,
+            now), CancellationToken.None);
+
+        var summary = await telemetry.GetLlmUsageSummaryAsync(run.Id, CancellationToken.None);
+        run.EstimatedLlmCost = summary.EstimatedCost;
+        run.Status = FetchRunStatuses.Succeeded;
+        run.SuccessSourceCount = 1;
+        run.FinishedAt = now.AddSeconds(1);
+        await fetchRuns.CompleteAsync(run, CancellationToken.None);
+
+        await using var connection = await fixture.DataSource.OpenConnectionAsync();
+        Assert.Equal(1, await connection.ExecuteScalarAsync<int>("select count(*) from fetch_run_source where run_id = @RunId;", new { RunId = run.Id }));
+        Assert.Equal(1, await connection.ExecuteScalarAsync<int>("select count(*) from fetch_run_stage where run_id = @RunId;", new { RunId = run.Id }));
+        Assert.Equal(1, summary.CallCount);
+        Assert.Equal(0.00170000m, summary.EstimatedCost);
+        Assert.Equal(0.00170000m, await connection.ExecuteScalarAsync<decimal>("select estimated_llm_cost from fetch_run where id = @RunId;", new { RunId = run.Id }));
     }
 
     private sealed class PostgresFixture : IAsyncDisposable

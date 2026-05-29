@@ -33,9 +33,9 @@ public sealed class PostgresFetchRunRepository : IFetchRunRepository
         await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
         await connection.ExecuteAsync(new CommandDefinition("""
         insert into fetch_run (id, started_at, finished_at, status, source_count, success_source_count, failure_source_count,
-            fetched_item_count, enriched_item_count, matched_event_count, pushed_event_count, errors)
+            fetched_item_count, enriched_item_count, matched_event_count, pushed_event_count, estimated_llm_cost, errors)
         values (@Id, @StartedAt, @FinishedAt, @Status, @SourceCount, @SuccessSourceCount, @FailureSourceCount,
-            @FetchedItemCount, @EnrichedItemCount, @MatchedEventCount, @PushedEventCount, @Errors::jsonb);
+            @FetchedItemCount, @EnrichedItemCount, @MatchedEventCount, @PushedEventCount, @EstimatedLlmCost, @Errors::jsonb);
         """, ToParameters(fetchRun), cancellationToken: cancellationToken));
 
         return fetchRun;
@@ -55,6 +55,7 @@ public sealed class PostgresFetchRunRepository : IFetchRunRepository
             enriched_item_count = @EnrichedItemCount,
             matched_event_count = @MatchedEventCount,
             pushed_event_count = @PushedEventCount,
+            estimated_llm_cost = @EstimatedLlmCost,
             errors = @Errors::jsonb
         where id = @Id;
         """, ToParameters(fetchRun), cancellationToken: cancellationToken));
@@ -74,6 +75,7 @@ public sealed class PostgresFetchRunRepository : IFetchRunRepository
             fetchRun.EnrichedItemCount,
             fetchRun.MatchedEventCount,
             fetchRun.PushedEventCount,
+            fetchRun.EstimatedLlmCost,
             Errors = PostgresJson.Serialize(fetchRun.Errors)
         };
 

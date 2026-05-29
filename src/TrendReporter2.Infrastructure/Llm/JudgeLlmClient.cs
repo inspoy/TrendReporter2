@@ -6,19 +6,24 @@ using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using TrendReporter2.Core.Configuration;
 using TrendReporter2.Core.Events;
+using TrendReporter2.Core.Observability;
 
 namespace TrendReporter2.Infrastructure.Llm;
 
 public sealed class JudgeLlmClient : IJudgeLlmClient
 {
+    private const int MaxRetryCount = 3;
+
     private readonly HttpClient _httpClient;
     private readonly AppConfig _config;
+    private readonly IRunTelemetryRecorder? _telemetryRecorder;
     private readonly ILogger _logger;
 
-    public JudgeLlmClient(HttpClient httpClient, AppConfig config, ILoggerFactory loggerFactory)
+    public JudgeLlmClient(HttpClient httpClient, AppConfig config, ILoggerFactory loggerFactory, IRunTelemetryRecorder? telemetryRecorder = null)
     {
         _httpClient = httpClient;
         _config = config;
+        _telemetryRecorder = telemetryRecorder;
         _logger = loggerFactory.CreateLogger("LLM.Judge");
     }
 
@@ -34,7 +39,77 @@ public sealed class JudgeLlmClient : IJudgeLlmClient
         }
 
         var stopwatch = Stopwatch.StartNew();
-        using var httpRequest = new HttpRequestMessage(HttpMethod.Post, BuildEndpoint(_config.Llm.Judge.BaseUrl));
+        OpenAiChatParseResult<JudgeResult>? finalResult = null;
+        var retryCount = 0;
+        for (var attempt = 0; attempt <= MaxRetryCount; attempt++)
+        {
+            if (attempt > 0)
+            {
+                retryCount++;
+            }
+
+            try
+            {
+                using var httpRequest = BuildRequest(request);
+                using var response = await _httpClient.SendAsync(httpRequest, cancellationToken);
+                var responseBody = await response.Content.ReadAsStringAsync(cancellationToken);
+                if (!response.IsSuccessStatusCode)
+                {
+                    finalResult = new OpenAiChatParseResult<JudgeResult>(
+                        JudgeResult.Neutral("评判 LLM HTTP 请求失败"),
+                        false,
+                        $"HTTP {(int)response.StatusCode}",
+                        null,
+                        new LlmUsageTokens(null, null, null));
+                    _logger.LogWarning(
+                        "评判 LLM 请求失败，事件编号={EventId}，HTTP状态={StatusCode}，耗时{ElapsedSec:F1}s，响应体={Body}",
+                        request.Event.Id,
+                        (int)response.StatusCode,
+                        stopwatch.Elapsed.Seconds,
+                        Truncate(NormalizeSnippet(responseBody), 500));
+                    if (attempt < MaxRetryCount)
+                    {
+                        continue;
+                    }
+
+                    break;
+                }
+
+                finalResult = ParseResponse(responseBody, request.Event.Id, stopwatch.ElapsedMilliseconds);
+                if (finalResult.Success || attempt == MaxRetryCount)
+                {
+                    break;
+                }
+            }
+            catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+            {
+                _logger.LogWarning(
+                    ex,
+                    "评判 LLM 网络异常，事件编号={EventId}，耗时{ElapsedSec:F1}s",
+                    request.Event.Id,
+                    stopwatch.Elapsed.Seconds);
+                finalResult = new OpenAiChatParseResult<JudgeResult>(
+                    JudgeResult.Neutral("评判 LLM 网络异常"),
+                    false,
+                    ex.Message,
+                    null,
+                    new LlmUsageTokens(null, null, null));
+                if (attempt >= MaxRetryCount)
+                {
+                    break;
+                }
+            }
+        }
+
+        finalResult ??= new OpenAiChatParseResult<JudgeResult>(
+            JudgeResult.Neutral("评判 LLM 请求失败"), false, "评判 LLM 请求失败", null, new LlmUsageTokens(null, null, null));
+        await RecordUsageAsync(request, finalResult, stopwatch.ElapsedMilliseconds, retryCount, cancellationToken);
+        return finalResult.Result;
+    }
+
+    private HttpRequestMessage BuildRequest(JudgeRequest request)
+    {
+        var httpRequest = new HttpRequestMessage(HttpMethod.Post, BuildEndpoint(_config.Llm.Judge.BaseUrl));
         if (!string.IsNullOrWhiteSpace(_config.Llm.Judge.ApiKey))
         {
             httpRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _config.Llm.Judge.ApiKey.Trim());
@@ -44,37 +119,7 @@ public sealed class JudgeLlmClient : IJudgeLlmClient
             JsonConvert.SerializeObject(BuildPayload(request)),
             Encoding.UTF8,
             "application/json");
-
-        try
-        {
-            using var response = await _httpClient.SendAsync(httpRequest, cancellationToken);
-            var responseBody = await response.Content.ReadAsStringAsync(cancellationToken);
-            if (!response.IsSuccessStatusCode)
-            {
-                _logger.LogWarning(
-                    "评判 LLM 请求失败，事件编号={EventId}，HTTP状态={StatusCode}，耗时{ElapsedSec:F1}s，响应体={Body}",
-                    request.Event.Id,
-                    (int)response.StatusCode,
-                    stopwatch.Elapsed.Seconds,
-                    Truncate(NormalizeSnippet(responseBody), 500));
-                return JudgeResult.Neutral("评判 LLM HTTP 请求失败");
-            }
-
-            return ParseResponse(responseBody, request.Event.Id, stopwatch.ElapsedMilliseconds);
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            throw;
-        }
-        catch (Exception ex) when (ex is HttpRequestException or JsonException or UriFormatException or TaskCanceledException)
-        {
-            _logger.LogWarning(
-                ex,
-                "评判 LLM 请求失败，事件编号={EventId}，耗时{ElapsedSec:F1}s",
-                request.Event.Id,
-                stopwatch.Elapsed.Seconds);
-            return JudgeResult.Neutral("评判 LLM 请求异常");
-        }
+        return httpRequest;
     }
 
     private object BuildPayload(JudgeRequest request)
@@ -122,11 +167,14 @@ public sealed class JudgeLlmClient : IJudgeLlmClient
             response_format = new { type = "json_object" }
         };
 
-    private JudgeResult ParseResponse(string responseBody, string eventId, long elapsedMs)
+    private OpenAiChatParseResult<JudgeResult> ParseResponse(string responseBody, string eventId, long elapsedMs)
     {
+        LlmUsageTokens tokens = new(null, null, null);
         try
         {
             var root = JObject.Parse(responseBody);
+            var requestId = root.Value<string>("id");
+            tokens = OpenAiUsageParser.Parse(root);
             var content = root["choices"]?.First?["message"]?.Value<string>("content");
             if (string.IsNullOrWhiteSpace(content))
             {
@@ -135,7 +183,8 @@ public sealed class JudgeLlmClient : IJudgeLlmClient
                     eventId,
                     elapsedMs / 1000f,
                     Truncate(NormalizeSnippet(responseBody), 500));
-                return JudgeResult.Neutral("评判 LLM 返回空内容");
+                return new OpenAiChatParseResult<JudgeResult>(
+                    JudgeResult.Neutral("评判 LLM 返回空内容"), false, "评判 LLM 返回空内容", requestId, tokens);
             }
 
             var parsed = JObject.Parse(content);
@@ -158,7 +207,7 @@ public sealed class JudgeLlmClient : IJudgeLlmClient
                 result.BoostScore,
                 result.Stage,
                 Truncate(NormalizeSnippet(result.Reason), 300));
-            return result;
+            return new OpenAiChatParseResult<JudgeResult>(result, true, null, requestId, tokens);
         }
         catch (JsonException ex)
         {
@@ -168,8 +217,41 @@ public sealed class JudgeLlmClient : IJudgeLlmClient
                 eventId,
                 elapsedMs / 1000f,
                 Truncate(NormalizeSnippet(responseBody), 500));
-            return JudgeResult.Neutral("评判 LLM 返回无效 JSON");
+            return new OpenAiChatParseResult<JudgeResult>(
+                JudgeResult.Neutral("评判 LLM 返回无效 JSON"), false, "评判 LLM 返回无效 JSON", null, tokens);
         }
+    }
+
+    private Task RecordUsageAsync(
+        JudgeRequest request,
+        OpenAiChatParseResult<JudgeResult> result,
+        long elapsedMs,
+        int retryCount,
+        CancellationToken cancellationToken)
+    {
+        if (_telemetryRecorder is null)
+        {
+            return Task.CompletedTask;
+        }
+
+        var usage = new LlmUsageRecord(
+            $"lu:{Guid.NewGuid():N}",
+            request.RunId,
+            LlmUsageStages.Judge,
+            _config.Llm.Judge.Model,
+            result.RequestId,
+            null,
+            request.Event.Id,
+            result.Tokens.InputTokens,
+            result.Tokens.OutputTokens,
+            result.Tokens.CacheReadTokens,
+            LlmUsageCostCalculator.EstimateCost(result.Tokens, _config.Llm.Judge.Pricing),
+            ToDurationMs(elapsedMs),
+            result.Success,
+            retryCount,
+            result.Error,
+            DateTimeOffset.UtcNow);
+        return _telemetryRecorder.RecordLlmUsageAsync(usage, cancellationToken);
     }
 
     private static List<string> ParseLabels(JArray labelArray)
@@ -218,4 +300,7 @@ public sealed class JudgeLlmClient : IJudgeLlmClient
 
     private static string NormalizeSnippet(string? value)
         => string.Join(' ', (value ?? string.Empty).Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+
+    private static int ToDurationMs(long elapsedMs)
+        => elapsedMs > int.MaxValue ? int.MaxValue : Math.Max(0, (int)elapsedMs);
 }

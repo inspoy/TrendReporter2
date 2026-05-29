@@ -24,6 +24,8 @@ public sealed class FetchRun
 
     public int PushedEventCount { get; set; }
 
+    public decimal EstimatedLlmCost { get; set; }
+
     public List<string> Errors { get; set; } = [];
 }
 

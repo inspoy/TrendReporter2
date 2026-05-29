@@ -6,6 +6,7 @@ using TrendReporter2.Core.Content;
 using TrendReporter2.Core.Enrichment;
 using TrendReporter2.Core.Events;
 using TrendReporter2.Core.Fetch;
+using TrendReporter2.Core.Observability;
 using TrendReporter2.Infrastructure.Configuration;
 using TrendReporter2.Infrastructure.Enrichment;
 using TrendReporter2.Infrastructure.Persistence;
@@ -38,6 +39,7 @@ public static class DependencyInjection
         services.AddSingleton<IEventRepository, PostgresEventRepository>();
         services.AddSingleton<IAppStateRepository, PostgresAppStateRepository>();
         services.AddSingleton<IFetchRunRepository, PostgresFetchRunRepository>();
+        services.AddSingleton<IRunTelemetryRecorder, PostgresRunTelemetryRecorder>();
         services.AddSingleton<IEventCandidateService, EventCandidateService>();
         services.AddSingleton<IEventMatcher, EventMatcher>();
         services.AddSingleton<IEventScoringService, EventScoringService>();

@@ -71,7 +71,7 @@ public sealed class EventScoringService : IEventScoringService
                 var hasEnoughSources = score.UniqueSourceCount >= _config.Analysis.Event.SourceCount;
 
                 var judge = reactivated || (hasEnoughSources && (eligibleBeforeJudge || IsNearEligibility(score)))
-                    ? await _judgeLlmClient.JudgeAsync(new JudgeRequest(input.Event, score, input.Evidence, score.TriggerReasons), cancellationToken)
+                    ? await _judgeLlmClient.JudgeAsync(new JudgeRequest(runId, input.Event, score, input.Evidence, score.TriggerReasons), cancellationToken)
                     : JudgeResult.Neutral("事件未达到评判阈值");
 
                 ApplyJudge(score, judge);

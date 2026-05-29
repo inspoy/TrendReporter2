@@ -49,6 +49,24 @@ public sealed class PostgresSchemaMigrationTests
         "ix_app_state_updated_at"
     ];
 
+    private static readonly string[] ObservabilityTables =
+    [
+        "fetch_run_source",
+        "fetch_run_stage",
+        "llm_usage"
+    ];
+
+    private static readonly string[] ObservabilityIndexes =
+    [
+        "ix_fetch_run_source_run_id",
+        "ix_fetch_run_source_status",
+        "ix_fetch_run_stage_run_stage",
+        "ix_fetch_run_stage_started_at",
+        "ix_llm_usage_run_stage",
+        "ix_llm_usage_created_at",
+        "ix_llm_usage_model_created_at"
+    ];
+
     [Fact]
     public void InitMigration_DefinesRequiredExtensionTablesAndRunnerCompatibility()
     {
@@ -105,6 +123,26 @@ public sealed class PostgresSchemaMigrationTests
     }
 
     [Fact]
+    public void ObservabilityMigration_DefinesSourceStageAndLlmUsageTables()
+    {
+        var normalized = NormalizeSql(File.ReadAllText(Path.Combine(InitMigrationDirectory(), "0003_observability.sql")));
+
+        Assert.Contains("alter table fetch_run add column if not exists estimated_llm_cost numeric(18, 8) not null default 0", normalized);
+        foreach (var table in ObservabilityTables)
+        {
+            Assert.Contains($"create table if not exists {table}", normalized);
+        }
+
+        Assert.Contains("constraint pk_fetch_run_source primary key (run_id, source_id)", normalized);
+        Assert.Contains("run_id text references fetch_run (id) on delete set null", TableBody(normalized, "llm_usage"));
+        Assert.Contains("retry_count integer not null default 0", TableBody(normalized, "llm_usage"));
+        foreach (var index in ObservabilityIndexes)
+        {
+            Assert.Contains($"create index if not exists {index}", normalized);
+        }
+    }
+
+    [Fact]
     [Trait("Category", "PostgresIntegration")]
     public async Task RunAsync_WhenPostgresIsAvailable_AppliesRealInitSchema()
     {
@@ -130,7 +168,7 @@ public sealed class PostgresSchemaMigrationTests
 
             var result = await runner.RunAsync(CancellationToken.None);
 
-            Assert.Equal(new SqlMigrationRunResult(1, 0), result);
+            Assert.Equal(new SqlMigrationRunResult(3, 0), result);
             await using var verifyConnection = await dataSource.OpenConnectionAsync();
             var tables = (await verifyConnection.QueryAsync<string>("""
             select table_name
@@ -150,12 +188,18 @@ public sealed class PostgresSchemaMigrationTests
                 Assert.Contains(table, tables);
             }
 
+            foreach (var table in ObservabilityTables)
+            {
+                Assert.Contains(table, tables);
+            }
+
             Assert.Contains("schema_migration", tables);
             Assert.Contains("uq_content_item_dedup_key", constraintNames);
             Assert.Contains("uq_event_item_dedup_key", constraintNames);
             Assert.Contains("uq_event_item_content_item_id", constraintNames);
             Assert.Contains("uq_push_log_dedup_key", constraintNames);
             Assert.Contains("uq_app_state_key", constraintNames);
+            Assert.Contains("pk_fetch_run_source", constraintNames);
 
             var migrationName = await verifyConnection.QuerySingleAsync<string>("""
             select name

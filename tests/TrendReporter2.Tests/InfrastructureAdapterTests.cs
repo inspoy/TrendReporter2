@@ -4,7 +4,9 @@ using Newtonsoft.Json.Linq;
 using TrendReporter2.Core.Configuration;
 using TrendReporter2.Core.Content;
 using TrendReporter2.Core.Events;
+using TrendReporter2.Core.Observability;
 using TrendReporter2.Infrastructure.Enrichment;
+using TrendReporter2.Infrastructure.Llm;
 using TrendReporter2.Infrastructure.News;
 using TrendReporter2.Infrastructure.Push;
 
@@ -97,6 +99,66 @@ public sealed class InfrastructureAdapterTests
         Assert.Equal("https://example.com", payload.Value<string>("link"));
     }
 
+    [Fact]
+    public async Task ClusterLlmClient_RecordsUsageTokensCostAndRetryCount()
+    {
+        var requestCount = 0;
+        var handler = new TestHttpMessageHandler(_ =>
+        {
+            requestCount++;
+            return requestCount == 1
+                ? TestHttpMessageHandler.Json(HttpStatusCode.BadGateway, "bad gateway")
+                : TestHttpMessageHandler.Json(HttpStatusCode.OK, """
+                {
+                  "id": "chatcmpl-cluster-1",
+                  "choices": [ { "message": { "content": "{\"decision\":\"same_event\",\"eventId\":\"ev-1\",\"confidence\":0.91,\"reason\":\"same story\"}" } } ],
+                  "usage": { "prompt_tokens": 1000, "completion_tokens": 500, "prompt_tokens_details": { "cached_tokens": 200 } }
+                }
+                """);
+        });
+        var recorder = new TestTelemetryRecorder();
+        var client = new ClusterLlmClient(new HttpClient(handler), ConfigWithLlm(), NullLoggerFactory.Instance, recorder);
+        var item = ContentItem();
+        var candidate = new EventCandidate(new EventAggregate { Id = "ev-1", CanonicalTitle = "事件一", Summary = "摘要" }, 0.8, ["title"]);
+
+        var result = await client.MatchAsync(new ClusterMatchRequest("run-1", item, [candidate]), CancellationToken.None);
+
+        Assert.Equal(ClusterDecisions.SameEvent, result.Decision);
+        Assert.Equal(2, handler.Requests.Count);
+        var usage = Assert.Single(recorder.LlmUsage);
+        Assert.Equal("run-1", usage.RunId);
+        Assert.Equal(LlmUsageStages.Cluster, usage.Stage);
+        Assert.Equal("chatcmpl-cluster-1", usage.RequestId);
+        Assert.Equal(item.Id, usage.ContentItemId);
+        Assert.Equal("ev-1", usage.EventId);
+        Assert.Equal(1000, usage.InputTokens);
+        Assert.Equal(500, usage.OutputTokens);
+        Assert.Equal(200, usage.CacheReadTokens);
+        Assert.Equal(1, usage.RetryCount);
+        Assert.True(usage.Success);
+        Assert.Equal(0.0017m, usage.EstimatedCost);
+    }
+
+    [Fact]
+    public async Task JudgeLlmClient_RecordsFinalFailureAfterRetries()
+    {
+        var handler = new TestHttpMessageHandler(_ => TestHttpMessageHandler.Json(HttpStatusCode.BadGateway, "bad gateway"));
+        var recorder = new TestTelemetryRecorder();
+        var client = new JudgeLlmClient(new HttpClient(handler), ConfigWithLlm(), NullLoggerFactory.Instance, recorder);
+        var eventAggregate = new EventAggregate { Id = "ev-1", CanonicalTitle = "事件一", Summary = "摘要" };
+
+        var result = await client.JudgeAsync(new JudgeRequest("run-1", eventAggregate, new EventScore { EventId = "ev-1" }, [], []), CancellationToken.None);
+
+        Assert.Equal(4, handler.Requests.Count);
+        Assert.Equal(0, result.BoostScore);
+        var usage = Assert.Single(recorder.LlmUsage);
+        Assert.Equal(LlmUsageStages.Judge, usage.Stage);
+        Assert.Equal("ev-1", usage.EventId);
+        Assert.Equal(3, usage.RetryCount);
+        Assert.False(usage.Success);
+        Assert.Equal("HTTP 502", usage.Error);
+    }
+
     private static AppConfig Config(string webExtractUrl = "", string pusherUrl = "", string pusherSecret = "", string pusherCate = "default", string channels = "")
         => new()
         {
@@ -108,5 +170,43 @@ public sealed class InfrastructureAdapterTests
 
     private static ContentItem ContentItem()
         => new() { Id = "ci-1", Title = "原标题", Url = "https://example.com/original" };
+
+    private static AppConfig ConfigWithLlm()
+        => new()
+        {
+            Llm = new LlmConfig
+            {
+                Cluster = new LlmEndpointConfig
+                {
+                    BaseUrl = "https://llm.local",
+                    Model = "cluster-model",
+                    Pricing = new LLmPricingConfig { Input = 1, Output = 1, CacheRead = 1 }
+                },
+                Judge = new LlmEndpointConfig
+                {
+                    BaseUrl = "https://llm.local",
+                    Model = "judge-model",
+                    Pricing = new LLmPricingConfig { Input = 1, Output = 1, CacheRead = 1 }
+                }
+            }
+        };
+
+    private sealed class TestTelemetryRecorder : IRunTelemetryRecorder
+    {
+        public List<LlmUsageRecord> LlmUsage { get; } = [];
+
+        public Task RecordSourceAsync(RunSourceTelemetry telemetry, CancellationToken cancellationToken) => Task.CompletedTask;
+
+        public Task RecordStageAsync(RunStageTelemetry telemetry, CancellationToken cancellationToken) => Task.CompletedTask;
+
+        public Task RecordLlmUsageAsync(LlmUsageRecord usage, CancellationToken cancellationToken)
+        {
+            LlmUsage.Add(usage);
+            return Task.CompletedTask;
+        }
+
+        public Task<LlmUsageSummary> GetLlmUsageSummaryAsync(string runId, CancellationToken cancellationToken)
+            => Task.FromResult(new LlmUsageSummary(LlmUsage.Count, LlmUsage.Sum(usage => usage.EstimatedCost)));
+    }
 
 }

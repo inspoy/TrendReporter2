@@ -18,9 +18,9 @@
 
 | 进度 | 里程碑 | 名称 | 目标 |
 | --- | --- | --- | --- |
-| 待开始 | `V2M0` | V2 基础准备 | 配置、CLI、PostgreSQL 连接、migration runner、移除 data-view |
-| 待开始 | `V2M1` | PostgreSQL 持久化主链路 | 用 Dapper 仓储替换 LiteDB，打通 fetch、match、score、push、digest |
-| 待开始 | `V2M2` | 可观测性与 LLM usage | 补齐 run/source/stage telemetry 和 LLM token、成本、错误记录 |
+| 已完成 | `V2M0` | V2 基础准备 | 配置、CLI、PostgreSQL 连接、migration runner、移除 data-view |
+| 已完成 | `V2M1` | PostgreSQL 持久化主链路 | 用 Dapper 仓储替换 LiteDB，打通 fetch、match、score、push、digest |
+| 已完成 | `V2M2` | 可观测性与 LLM usage | 补齐 run/source/stage telemetry 和 LLM token、成本、错误记录 |
 | 待开始 | `V2M3` | Source 抽象与 DailyHotApi/flash | 建立 source registry，支持 ranked news 和 flash feed |
 | 待开始 | `V2M4` | Tag 与静态报告 | 实现 tag/event_tag，生成静态 HTML 摘要报告 |
 | 待开始 | `V2M5` | pgvector 候选召回 | 接入 embedding 表、向量索引和 vector recall，规则召回保底 |

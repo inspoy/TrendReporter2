@@ -43,7 +43,7 @@ public sealed class EventMatcher : IEventMatcher
     {
         var items = await _repository.LoadUnmappedRunContentItemsAsync(runId, cancellationToken);
         await _repository.MarkStaleEventsAsync(now, _config.Analysis.Event.StaleHours, cancellationToken);
-        var precomputedMatches = await PrecomputeMatchesAsync(items, now, cancellationToken);
+        var precomputedMatches = await PrecomputeMatchesAsync(runId, items, now, cancellationToken);
         var created = 0;
         var merged = 0;
         var reactivated = 0;
@@ -56,7 +56,7 @@ public sealed class EventMatcher : IEventMatcher
             cancellationToken.ThrowIfCancellationRequested();
 
             var commitMatch = hasCommittedEventChange && ShouldRevalidateBeforeCommit(precomputedMatch.Candidates, precomputedMatch.Match)
-                ? await RecallAndMatchAsync(precomputedMatch.Item, now, cancellationToken)
+                    ? await RecallAndMatchAsync(runId, precomputedMatch.Item, now, cancellationToken)
                 : precomputedMatch;
             var targetEvent = await ResolveTargetEventAsync(
                 commitMatch.Item,
@@ -102,6 +102,7 @@ public sealed class EventMatcher : IEventMatcher
     }
 
     private async Task<IReadOnlyList<PrecomputedEventMatch>> PrecomputeMatchesAsync(
+        string runId,
         IReadOnlyList<ContentItem> items,
         DateTimeOffset now,
         CancellationToken cancellationToken)
@@ -119,7 +120,7 @@ public sealed class EventMatcher : IEventMatcher
             try
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                var match =  await RecallAndMatchAsync(item, now, cancellationToken);
+                var match =  await RecallAndMatchAsync(runId, item, now, cancellationToken);
                 var p = Interlocked.Increment(ref progress);
                 if (p % 10 == 0)
                 {
@@ -139,6 +140,7 @@ public sealed class EventMatcher : IEventMatcher
     }
 
     private async Task<PrecomputedEventMatch> RecallAndMatchAsync(
+        string runId,
         ContentItem item,
         DateTimeOffset now,
         CancellationToken cancellationToken)
@@ -146,7 +148,7 @@ public sealed class EventMatcher : IEventMatcher
         var candidates = await _candidateService.RecallAsync(item, now, cancellationToken);
         var useLlm = candidates.Count > 0 && _clusterLlmClient.IsConfigured;
         var match = useLlm
-            ? await _clusterLlmClient.MatchAsync(new ClusterMatchRequest(item, candidates), cancellationToken)
+            ? await _clusterLlmClient.MatchAsync(new ClusterMatchRequest(runId, item, candidates), cancellationToken)
             : ClusterMatchResult.CreateNew(candidates.Count == 0 ? "没有召回的候选事件" : "聚类 LLM 未配置");
 
         return new PrecomputedEventMatch(item, candidates, match, useLlm);

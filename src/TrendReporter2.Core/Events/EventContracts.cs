@@ -86,6 +86,7 @@ public sealed record DigestCandidate(
     EventScoreSnapshot Score);
 
 public sealed record ClusterMatchRequest(
+    string? RunId,
     ContentItem Item,
     IReadOnlyList<EventCandidate> Candidates);
 

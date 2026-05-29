@@ -6,19 +6,24 @@ using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using TrendReporter2.Core.Configuration;
 using TrendReporter2.Core.Events;
+using TrendReporter2.Core.Observability;
 
 namespace TrendReporter2.Infrastructure.Llm;
 
 public sealed class ClusterLlmClient : IClusterLlmClient
 {
+    private const int MaxRetryCount = 3;
+
     private readonly HttpClient _httpClient;
     private readonly AppConfig _config;
+    private readonly IRunTelemetryRecorder? _telemetryRecorder;
     private readonly ILogger _logger;
 
-    public ClusterLlmClient(HttpClient httpClient, AppConfig config, ILoggerFactory loggerFactory)
+    public ClusterLlmClient(HttpClient httpClient, AppConfig config, ILoggerFactory loggerFactory, IRunTelemetryRecorder? telemetryRecorder = null)
     {
         _httpClient = httpClient;
         _config = config;
+        _telemetryRecorder = telemetryRecorder;
         _logger = loggerFactory.CreateLogger("LLM.Cluster");
     }
 
@@ -34,7 +39,77 @@ public sealed class ClusterLlmClient : IClusterLlmClient
         }
 
         var stopwatch = Stopwatch.StartNew();
-        using var httpRequest = new HttpRequestMessage(HttpMethod.Post, BuildEndpoint(_config.Llm.Cluster.BaseUrl));
+        OpenAiChatParseResult<ClusterMatchResult>? finalResult = null;
+        var retryCount = 0;
+        for (var attempt = 0; attempt <= MaxRetryCount; attempt++)
+        {
+            if (attempt > 0)
+            {
+                retryCount++;
+            }
+
+            try
+            {
+                using var httpRequest = BuildRequest(request);
+                using var response = await _httpClient.SendAsync(httpRequest, cancellationToken);
+                var responseBody = await response.Content.ReadAsStringAsync(cancellationToken);
+                if (!response.IsSuccessStatusCode)
+                {
+                    finalResult = new OpenAiChatParseResult<ClusterMatchResult>(
+                        ClusterMatchResult.CreateNew("聚类 LLM HTTP 请求失败"),
+                        false,
+                        $"HTTP {(int)response.StatusCode}",
+                        null,
+                        new LlmUsageTokens(null, null, null));
+                    _logger.LogWarning(
+                        "聚类 LLM 请求失败，内容条目编号={ContentItemId}，HTTP状态={StatusCode}，耗时{ElapsedSec:F1}s，响应体={Body}",
+                        request.Item.Id,
+                        (int)response.StatusCode,
+                        stopwatch.Elapsed.Seconds,
+                        Truncate(NormalizeSnippet(responseBody), 500));
+                    if (attempt < MaxRetryCount)
+                    {
+                        continue;
+                    }
+
+                    break;
+                }
+
+                finalResult = ParseResponse(responseBody, request, stopwatch.ElapsedMilliseconds);
+                if (finalResult.Success || attempt == MaxRetryCount)
+                {
+                    break;
+                }
+            }
+            catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+            {
+                _logger.LogWarning(
+                    ex,
+                    "聚类 LLM 网络异常，内容条目编号={ContentItemId}，耗时{ElapsedSec:F1}s",
+                    request.Item.Id,
+                    stopwatch.Elapsed.Seconds);
+                finalResult = new OpenAiChatParseResult<ClusterMatchResult>(
+                    ClusterMatchResult.CreateNew("聚类 LLM 网络异常"),
+                    false,
+                    ex.Message,
+                    null,
+                    new LlmUsageTokens(null, null, null));
+                if (attempt >= MaxRetryCount)
+                {
+                    break;
+                }
+            }
+        }
+
+        finalResult ??= new OpenAiChatParseResult<ClusterMatchResult>(
+            ClusterMatchResult.CreateNew("聚类 LLM 请求失败"), false, "聚类 LLM 请求失败", null, new LlmUsageTokens(null, null, null));
+        await RecordUsageAsync(request, finalResult, stopwatch.ElapsedMilliseconds, retryCount, cancellationToken);
+        return finalResult.Result;
+    }
+
+    private HttpRequestMessage BuildRequest(ClusterMatchRequest request)
+    {
+        var httpRequest = new HttpRequestMessage(HttpMethod.Post, BuildEndpoint(_config.Llm.Cluster.BaseUrl));
         if (!string.IsNullOrWhiteSpace(_config.Llm.Cluster.ApiKey))
         {
             httpRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _config.Llm.Cluster.ApiKey.Trim());
@@ -44,37 +119,7 @@ public sealed class ClusterLlmClient : IClusterLlmClient
             JsonConvert.SerializeObject(BuildPayload(request)),
             Encoding.UTF8,
             "application/json");
-
-        try
-        {
-            using var response = await _httpClient.SendAsync(httpRequest, cancellationToken);
-            var responseBody = await response.Content.ReadAsStringAsync(cancellationToken);
-            if (!response.IsSuccessStatusCode)
-            {
-                _logger.LogWarning(
-                    "聚类 LLM 请求失败，内容条目编号={ContentItemId}，HTTP状态={StatusCode}，耗时{ElapsedSec:F1}s，响应体={Body}",
-                    request.Item.Id,
-                    (int)response.StatusCode,
-                    stopwatch.Elapsed.Seconds,
-                    Truncate(NormalizeSnippet(responseBody), 500));
-                return ClusterMatchResult.CreateNew("聚类 LLM HTTP 请求失败");
-            }
-
-            return ParseResponse(responseBody, request, stopwatch.ElapsedMilliseconds);
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            throw;
-        }
-        catch (Exception ex) when (ex is HttpRequestException or JsonException or UriFormatException or TaskCanceledException)
-        {
-            _logger.LogWarning(
-                ex,
-                "聚类 LLM 请求失败，内容条目编号={ContentItemId}，耗时{ElapsedSec:F1}s",
-                request.Item.Id,
-                stopwatch.Elapsed.Seconds);
-            return ClusterMatchResult.CreateNew("聚类 LLM 请求异常");
-        }
+        return httpRequest;
     }
 
     private object BuildPayload(ClusterMatchRequest request)
@@ -120,11 +165,14 @@ public sealed class ClusterLlmClient : IClusterLlmClient
             response_format = new { type = "json_object" }
         };
 
-    private ClusterMatchResult ParseResponse(string responseBody, ClusterMatchRequest request, long elapsedMs)
+    private OpenAiChatParseResult<ClusterMatchResult> ParseResponse(string responseBody, ClusterMatchRequest request, long elapsedMs)
     {
+        LlmUsageTokens tokens = new(null, null, null);
         try
         {
             var root = JObject.Parse(responseBody);
+            var requestId = root.Value<string>("id");
+            tokens = OpenAiUsageParser.Parse(root);
             var content = root["choices"]?.First?["message"]?.Value<string>("content");
             if (string.IsNullOrWhiteSpace(content))
             {
@@ -133,7 +181,8 @@ public sealed class ClusterLlmClient : IClusterLlmClient
                     request.Item.Id,
                     elapsedMs / 1000f,
                     Truncate(NormalizeSnippet(responseBody), 500));
-                return ClusterMatchResult.CreateNew("聚类 LLM 返回空内容");
+                return new OpenAiChatParseResult<ClusterMatchResult>(
+                    ClusterMatchResult.CreateNew("聚类 LLM 返回空内容"), false, "聚类 LLM 返回空内容", requestId, tokens);
             }
 
             var parsed = JObject.Parse(content);
@@ -155,7 +204,8 @@ public sealed class ClusterLlmClient : IClusterLlmClient
                     request.Item.Id,
                     elapsedMs / 1000f,
                     Truncate(NormalizeSnippet(content), 500));
-                return ClusterMatchResult.CreateNew("聚类 LLM 返回无效决策");
+                return new OpenAiChatParseResult<ClusterMatchResult>(
+                    ClusterMatchResult.CreateNew("聚类 LLM 返回无效决策"), false, "聚类 LLM 返回无效决策", requestId, tokens);
             }
 
             if ((decision == ClusterDecisions.SameEvent || decision == ClusterDecisions.FollowUp) &&
@@ -167,7 +217,8 @@ public sealed class ClusterLlmClient : IClusterLlmClient
                     elapsedMs / 1000f,
                     eventId,
                     Truncate(NormalizeSnippet(content), 500));
-                return ClusterMatchResult.CreateNew("聚类 LLM 返回未知事件编号");
+                return new OpenAiChatParseResult<ClusterMatchResult>(
+                    ClusterMatchResult.CreateNew("聚类 LLM 返回未知事件编号"), false, "聚类 LLM 返回未知事件编号", requestId, tokens);
             }
 
             var result = new ClusterMatchResult(
@@ -186,7 +237,7 @@ public sealed class ClusterLlmClient : IClusterLlmClient
                 request.Item.Id,
                 elapsedMs / 1000f,
                 result.EventId);
-            return result;
+            return new OpenAiChatParseResult<ClusterMatchResult>(result, true, null, requestId, tokens);
         }
         catch (JsonException ex)
         {
@@ -196,8 +247,44 @@ public sealed class ClusterLlmClient : IClusterLlmClient
                 request.Item.Id,
                 elapsedMs / 1000f,
                 Truncate(NormalizeSnippet(responseBody), 500));
-            return ClusterMatchResult.CreateNew("聚类 LLM 返回无效 JSON");
+            return new OpenAiChatParseResult<ClusterMatchResult>(
+                ClusterMatchResult.CreateNew("聚类 LLM 返回无效 JSON"), false, "聚类 LLM 返回无效 JSON", null, tokens);
         }
+    }
+
+    private Task RecordUsageAsync(
+        ClusterMatchRequest request,
+        OpenAiChatParseResult<ClusterMatchResult> result,
+        long elapsedMs,
+        int retryCount,
+        CancellationToken cancellationToken)
+    {
+        if (_telemetryRecorder is null)
+        {
+            return Task.CompletedTask;
+        }
+
+        var eventId = result.Result is { Decision: ClusterDecisions.SameEvent or ClusterDecisions.FollowUp, EventId: not null }
+            ? result.Result.EventId
+            : null;
+        var usage = new LlmUsageRecord(
+            $"lu:{Guid.NewGuid():N}",
+            request.RunId,
+            LlmUsageStages.Cluster,
+            _config.Llm.Cluster.Model,
+            result.RequestId,
+            request.Item.Id,
+            eventId,
+            result.Tokens.InputTokens,
+            result.Tokens.OutputTokens,
+            result.Tokens.CacheReadTokens,
+            LlmUsageCostCalculator.EstimateCost(result.Tokens, _config.Llm.Cluster.Pricing),
+            ToDurationMs(elapsedMs),
+            result.Success,
+            retryCount,
+            result.Error,
+            DateTimeOffset.UtcNow);
+        return _telemetryRecorder.RecordLlmUsageAsync(usage, cancellationToken);
     }
 
     private Uri BuildEndpoint(string baseUrl)
@@ -211,4 +298,7 @@ public sealed class ClusterLlmClient : IClusterLlmClient
 
     private static string NormalizeSnippet(string? value)
         => string.Join(' ', (value ?? string.Empty).Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+
+    private static int ToDurationMs(long elapsedMs)
+        => elapsedMs > int.MaxValue ? int.MaxValue : Math.Max(0, (int)elapsedMs);
 }
