@@ -2,31 +2,35 @@
 # 一行一条DailyHotApi的source，空行、#开头的行和行尾#注释会被忽略
 # Example: weibo # 微博热搜
 
+# 最终入选
+nytimes # 国际新闻快讯，大媒体，不过必须指定type=global
 36kr # 科技向新闻热榜
 51cto # 社会话题，技术向
-baidu # 国内新闻热榜
-dgtle # 数码资讯，但是标题和描述会被截断
 douban-group # 豆瓣小组，生活类热榜
-geekpark # 科技类新闻热榜
-github # Github趋势日榜
-hackernews # 科技新闻，还是比较有价值的，只不过是英文
-hellogithub # 中文GitHub热榜
 huxiu # 综合新闻快讯
-ifanr # 科技快讯，主要是产品发布信息
-ithome # 科技新闻热榜
-juejin # 科技类话题
-netease-news # 网易新闻快讯
 newsmth # 社会话题热榜
-nytimes # 国际新闻快讯，大媒体，不过必须指定type=global
-qq-news # 综合新闻
-sina-news # 综合新闻
-sina # 社会话题热榜
-thepaper # 国内新闻热榜，大媒体
 tieba # 社会话题的热榜
-toutiao # 综合新闻热榜，但summary获取有一定门槛，需要先获取`document.querySelector("a.title").href`的链接，如果是video就失败，如果是article再爬取对应网页
-yystv # 游戏向新闻热榜
-zhihu # 综合新闻热榜，价值高
 
+# 最终筛选的，排除了不太重要的，重复的，以及不好抓取信息的渠道
+# zhihu # 综合新闻热榜，价值高
+# baidu # 国内新闻热榜
+# dgtle # 数码资讯，但是标题和描述会被截断
+# geekpark # 科技类新闻热榜
+# github # Github趋势日榜
+# hellogithub # 中文GitHub热榜
+# hackernews # 科技新闻，还是比较有价值的，只不过是英文
+# ifanr # 科技快讯，主要是产品发布信息
+# ithome # 科技新闻热榜
+# juejin # 科技类话题
+# netease-news # 网易新闻快讯
+# sina-news # 综合新闻
+# sina # 社会话题热榜
+# qq-news # 综合新闻
+# thepaper # 国内新闻热榜，大媒体
+# toutiao # 综合新闻热榜，但summary获取有一定门槛，需要先获取`document.querySelector("a.title").href`的链接，如果是video就失败，如果是article再爬取对应网页
+# yystv # 游戏向新闻热榜
+
+# 下面是一些不太适合的渠道
 # douban-movie # 电影榜，和项目无关
 # douyin # 抖音热榜，只有短标题
 # guokr # 社会话题，感觉大多比较无聊

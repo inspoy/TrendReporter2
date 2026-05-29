@@ -140,7 +140,13 @@
         "category": {
           "type": "string",
           "description": "信源分类 (如 china, social, tech, world, finance)",
-          "minLength": 1
+          "enum": [
+            "china",
+            "world",
+            "tech",
+            "finance",
+            "social"
+          ]
         },
         "displayName": {
           "type": "string",
