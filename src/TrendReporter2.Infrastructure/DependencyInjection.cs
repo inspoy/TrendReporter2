@@ -7,6 +7,7 @@ using TrendReporter2.Core.Enrichment;
 using TrendReporter2.Core.Events;
 using TrendReporter2.Core.Fetch;
 using TrendReporter2.Core.Observability;
+using TrendReporter2.Core.Sources;
 using TrendReporter2.Infrastructure.Configuration;
 using TrendReporter2.Infrastructure.Enrichment;
 using TrendReporter2.Infrastructure.Persistence;
@@ -33,6 +34,8 @@ public static class DependencyInjection
         });
         services.AddSingleton<SqlMigrationRunner>();
         services.AddSingleton<IEnrichmentPolicy, EnrichmentPolicy>();
+        services.AddSingleton<ISourceRegistry, SourceRegistry>();
+        services.AddSingleton<ISourceRepository, PostgresSourceRepository>();
         services.AddSingleton<PostgresContentRepository>();
         services.AddSingleton<IContentIngestService>(static serviceProvider => serviceProvider.GetRequiredService<PostgresContentRepository>());
         services.AddSingleton<IEnrichmentService, EnrichmentService>();

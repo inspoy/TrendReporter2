@@ -2,6 +2,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using TrendReporter2.Core.Configuration;
 using TrendReporter2.Core.Content;
 using TrendReporter2.Core.Events;
+using TrendReporter2.Core.Sources;
 
 namespace TrendReporter2.Tests;
 
@@ -22,13 +23,17 @@ public sealed class EventScoringServiceTests
             ]
         };
         var pusher = new FakePusher();
-        var service = new EventScoringService(Config(), repository, new FakeJudgeLlmClient(), [pusher], NullLoggerFactory.Instance);
+        var service = new EventScoringService(Config(), repository, new FakeJudgeLlmClient(), [pusher], EmptySourceRegistry(), NullLoggerFactory.Instance);
 
         var result = await service.ScoreAndPushRunAsync("run-1", runStartedAt, now, CancellationToken.None);
 
         Assert.Equal(new EventScoringRunResult(1, 1, 1), result);
         var score = Assert.Single(repository.ScoreSnapshots);
         Assert.Equal(3, score.UniqueSourceCount);
+        Assert.Equal(3, score.RankedSourceCount);
+        Assert.Equal(0, score.FlashSourceCount);
+        Assert.Equal(0, score.FlashScore);
+        Assert.Equal(0.9, score.RankScore, 3);
         Assert.Equal(3, score.TrendEvidenceCount);
         Assert.True(score.HeatValue > 2.4);
         Assert.Contains(TriggerReasons.CoverageRank, score.TriggerReasons);
@@ -40,6 +45,60 @@ public sealed class EventScoringServiceTests
         Assert.NotEmpty(repository.UpdatedEvents.Single().Milestones);
         Assert.Single(pusher.Messages);
         Assert.Equal(1, repository.UpdatedEvents.Single().PushCount);
+    }
+
+    [Fact]
+    public async Task ScoreAndPushRunAsync_AllowsFlashEvidenceWithoutRankToBecomeEligible()
+    {
+        var now = DateTimeOffset.Parse("2026-05-05T08:00:00Z");
+        var repository = new FakeEventRepository
+        {
+            Inputs = [BuildInput("event-flash", now.AddMinutes(-30), BuildFlashEvidence(3, 1.0))]
+        };
+        var pusher = new FakePusher();
+        var service = new EventScoringService(Config(), repository, new FakeJudgeLlmClient(), [pusher], EmptySourceRegistry(), NullLoggerFactory.Instance);
+
+        var result = await service.ScoreAndPushRunAsync("run-flash", now.AddMinutes(-5), now, CancellationToken.None);
+
+        Assert.Equal(new EventScoringRunResult(1, 1, 1), result);
+        var score = Assert.Single(repository.ScoreSnapshots);
+        Assert.Equal(0, score.RankedSourceCount);
+        Assert.Equal(3, score.FlashSourceCount);
+        Assert.Equal(0, score.RankScore);
+        Assert.Equal(0, score.AvgRank);
+        Assert.Equal(0, score.AvgNormalizedRank);
+        Assert.Equal(1, score.FreshnessScore);
+        Assert.Equal(1, score.FlashScore, 3);
+        Assert.Contains(TriggerReasons.FlashMultiSource, score.TriggerReasons);
+        Assert.Contains(TriggerReasons.FlashRepeated, score.TriggerReasons);
+        Assert.Contains(TriggerReasons.FirstPush, score.TriggerReasons);
+        Assert.Single(pusher.Messages);
+        Assert.Equal(TriggerReasons.FlashMultiSource, pusher.Messages.Single().Reason);
+    }
+
+    [Fact]
+    public async Task ScoreAndPushRunAsync_DoesNotMakeTopicEvidenceStrongPushEligible()
+    {
+        var now = DateTimeOffset.Parse("2026-05-05T08:00:00Z");
+        var repository = new FakeEventRepository
+        {
+            Inputs = [BuildInput("event-topic", now.AddMinutes(-30), BuildTopicEvidence(3))]
+        };
+        var pusher = new FakePusher();
+        var service = new EventScoringService(Config(), repository, new FakeJudgeLlmClient(), [pusher], EmptySourceRegistry(), NullLoggerFactory.Instance);
+
+        var result = await service.ScoreAndPushRunAsync("run-topic", now.AddMinutes(-5), now, CancellationToken.None);
+
+        Assert.Equal(new EventScoringRunResult(1, 0, 0), result);
+        var score = Assert.Single(repository.ScoreSnapshots);
+        Assert.Equal(0, score.UniqueSourceCount);
+        Assert.Equal(0, score.RankedSourceCount);
+        Assert.Equal(0, score.FlashSourceCount);
+        Assert.Equal(0, score.RankScore);
+        Assert.Equal(0, score.FlashScore);
+        Assert.DoesNotContain(TriggerReasons.CoverageRank, score.TriggerReasons);
+        Assert.DoesNotContain(TriggerReasons.FlashMultiSource, score.TriggerReasons);
+        Assert.Empty(pusher.Messages);
     }
 
     [Fact]
@@ -57,7 +116,7 @@ public sealed class EventScoringServiceTests
             Inputs = [new RunEventScoringInput(repeatEvent, BuildEvidence(5))]
         };
         var pusher = new FakePusher();
-        var service = new EventScoringService(Config(), repository, new FakeJudgeLlmClient(), [pusher], NullLoggerFactory.Instance);
+        var service = new EventScoringService(Config(), repository, new FakeJudgeLlmClient(), [pusher], EmptySourceRegistry(), NullLoggerFactory.Instance);
 
         var result = await service.ScoreAndPushRunAsync("run-repeat", now.AddMinutes(-5), now, CancellationToken.None);
 
@@ -72,7 +131,7 @@ public sealed class EventScoringServiceTests
             InsertPushLogResult = false
         };
         var dedupPusher = new FakePusher();
-        var dedupService = new EventScoringService(Config(), dedupRepository, new FakeJudgeLlmClient(), [dedupPusher], NullLoggerFactory.Instance);
+        var dedupService = new EventScoringService(Config(), dedupRepository, new FakeJudgeLlmClient(), [dedupPusher], EmptySourceRegistry(), NullLoggerFactory.Instance);
 
         var dedupResult = await dedupService.ScoreAndPushRunAsync("run-dedup", now.AddMinutes(-5), now, CancellationToken.None);
 
@@ -91,7 +150,7 @@ public sealed class EventScoringServiceTests
             Inputs = [BuildInput("event-blacklist", now.AddHours(-3), BuildEvidence(3), "广告事件")]
         };
         var pusher = new FakePusher();
-        var service = new EventScoringService(Config(blacklistKeywords: ["广告"]), repository, new FakeJudgeLlmClient(), [pusher], NullLoggerFactory.Instance);
+        var service = new EventScoringService(Config(blacklistKeywords: ["广告"]), repository, new FakeJudgeLlmClient(), [pusher], EmptySourceRegistry(), NullLoggerFactory.Instance);
 
         var result = await service.ScoreAndPushRunAsync("run-blacklist", now.AddMinutes(-5), now, CancellationToken.None);
 
@@ -116,6 +175,7 @@ public sealed class EventScoringServiceTests
             singleSourceRepository,
             singleSourceJudge,
             [new FakePusher()],
+            EmptySourceRegistry(),
             NullLoggerFactory.Instance);
 
         var singleSourceResult = await singleSourceService.ScoreAndPushRunAsync("run-single-source", runStartedAt, now, CancellationToken.None);
@@ -133,6 +193,7 @@ public sealed class EventScoringServiceTests
             enoughSourceRepository,
             enoughSourceJudge,
             [new FakePusher()],
+            EmptySourceRegistry(),
             NullLoggerFactory.Instance);
 
         var enoughSourceResult = await enoughSourceService.ScoreAndPushRunAsync("run-enough-source", runStartedAt, now, CancellationToken.None);
@@ -166,6 +227,16 @@ public sealed class EventScoringServiceTests
             System = new SystemConfig { MaxParallelLlm = 1 }
         };
 
+    private static ISourceRegistry EmptySourceRegistry()
+        => new FakeSourceRegistry();
+
+    private static EventScoringService CreateScoringService(
+        AppConfig config,
+        IEventRepository repository,
+        IJudgeLlmClient judgeLlmClient,
+        IEnumerable<IPusher> pushers)
+        => new(config, repository, judgeLlmClient, pushers, EmptySourceRegistry(), NullLoggerFactory.Instance);
+
     private static RunEventScoringInput BuildInput(string eventId, DateTimeOffset firstSeenAt, IReadOnlyList<RunEventContentEvidence> evidence, string title = "重要事件")
         => new(BuildEvent(eventId, firstSeenAt, title), evidence);
 
@@ -187,8 +258,30 @@ public sealed class EventScoringServiceTests
         var now = DateTimeOffset.Parse("2026-05-05T08:00:00Z");
         return Enumerable.Range(1, sourceCount)
             .Select(index => new RunEventContentEvidence(
-                new ContentItem { Id = $"ci-{index}", Source = $"source-{index}", Title = $"重要事件 {index}", Url = $"https://example.com/{index}" },
-                new ContentSnapshot { Id = $"snap-{index}", Source = $"source-{index}", Rank = 1, SourceListSize = 10, NormalizedRankScore = 0.9, CapturedAt = now },
+                new ContentItem { Id = $"ci-{index}", Source = $"source-{index}", ContentKind = ContentKind.RankedNews, Title = $"重要事件 {index}", Url = $"https://example.com/{index}" },
+                new ContentSnapshot { Id = $"snap-{index}", Source = $"source-{index}", ContentKind = ContentKind.RankedNews, Rank = 1, SourceListSize = 10, NormalizedRankScore = 0.9, CapturedAt = now },
+                now))
+            .ToList();
+    }
+
+    private static List<RunEventContentEvidence> BuildFlashEvidence(int sourceCount, double freshnessScore)
+    {
+        var now = DateTimeOffset.Parse("2026-05-05T08:00:00Z");
+        return Enumerable.Range(1, sourceCount)
+            .Select(index => new RunEventContentEvidence(
+                new ContentItem { Id = $"flash-ci-{index}", Source = $"flash-source-{index}", ContentKind = ContentKind.FlashFeed, Title = $"突发快讯 {index}", Url = $"https://example.com/flash/{index}" },
+                new ContentSnapshot { Id = $"flash-snap-{index}", Source = $"flash-source-{index}", ContentKind = ContentKind.FlashFeed, Rank = null, SourceListSize = null, NormalizedRankScore = null, FreshnessScore = freshnessScore, CapturedAt = now },
+                now))
+            .ToList();
+    }
+
+    private static List<RunEventContentEvidence> BuildTopicEvidence(int sourceCount)
+    {
+        var now = DateTimeOffset.Parse("2026-05-05T08:00:00Z");
+        return Enumerable.Range(1, sourceCount)
+            .Select(index => new RunEventContentEvidence(
+                new ContentItem { Id = $"topic-ci-{index}", Source = $"topic-source-{index}", ContentKind = ContentKind.Topic, Title = $"话题 {index}", Url = $"https://example.com/topic/{index}" },
+                new ContentSnapshot { Id = $"topic-snap-{index}", Source = $"topic-source-{index}", ContentKind = ContentKind.Topic, Rank = 1, SourceListSize = 10, NormalizedRankScore = 1, FreshnessScore = 1, CapturedAt = now },
                 now))
             .ToList();
     }
@@ -241,5 +334,12 @@ public sealed class EventScoringServiceTests
             Messages.Add(message);
             return Task.FromResult(new PushResult(true, "{}", null));
         }
+    }
+
+    private sealed class FakeSourceRegistry : ISourceRegistry
+    {
+        public IReadOnlyList<SourceDefinition> GetSources() => Array.Empty<SourceDefinition>();
+        public IReadOnlyList<SourceDefinition> GetEnabledSources() => Array.Empty<SourceDefinition>();
+        public IReadOnlyDictionary<string, IReadOnlyList<SourceDefinition>> GetEnabledSourcesByProvider() => new Dictionary<string, IReadOnlyList<SourceDefinition>>();
     }
 }

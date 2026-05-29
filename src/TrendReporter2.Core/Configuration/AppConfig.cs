@@ -4,6 +4,8 @@ public sealed class AppConfig
 {
     public NewsNowConfig NewsNow { get; init; } = new();
 
+    public SourcesConfig Sources { get; init; } = new();
+
     public DatabaseConfig? Database { get; init; }
 
     public AnalysisConfig Analysis { get; init; } = new();
@@ -24,6 +26,37 @@ public sealed class NewsNowConfig
     public string BaseUrl { get; init; } = string.Empty;
 
     public Dictionary<string, List<string>> Sources { get; init; } = new(StringComparer.OrdinalIgnoreCase);
+}
+
+public sealed class SourcesConfig
+{
+    public SourceProviderConfig NewsNow { get; init; } = new();
+
+    public SourceProviderConfig DailyHotApi { get; init; } = new();
+}
+
+public sealed class SourceProviderConfig
+{
+    public string BaseUrl { get; init; } = string.Empty;
+
+    public List<SourceItemConfig> Items { get; init; } = [];
+}
+
+public sealed class SourceItemConfig
+{
+    public string Id { get; init; } = string.Empty;
+
+    public string ExternalId { get; init; } = string.Empty;
+
+    public string Category { get; init; } = string.Empty;
+
+    public string DisplayName { get; init; } = string.Empty;
+
+    public string ContentKind { get; init; } = string.Empty;
+
+    public bool Enabled { get; init; } = true;
+
+    public double Weight { get; init; } = 1.0;
 }
 
 public sealed class DatabaseConfig

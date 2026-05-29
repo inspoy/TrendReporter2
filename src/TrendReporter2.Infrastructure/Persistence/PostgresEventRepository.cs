@@ -135,8 +135,10 @@ public sealed class PostgresEventRepository : IEventRepository
             ci.id as ContentId,
             ci.dedup_key as ContentDedupKey,
             ci.source as ContentSource,
+            ci.source_id as ContentSourceId,
             ci.category as ContentCategory,
             ci.type as ContentType,
+            ci.content_kind as ContentKind,
             ci.source_item_id as SourceItemId,
             ci.title as ContentTitle,
             ci.url as ContentUrl,
@@ -159,18 +161,21 @@ public sealed class PostgresEventRepository : IEventRepository
             cs.content_item_id as SnapshotContentItemId,
             cs.captured_at as CapturedAt,
             cs.source as SnapshotSource,
+            cs.source_id as SnapshotSourceId,
             cs.category as SnapshotCategory,
+            cs.content_kind as SnapshotContentKind,
             cs.visual_order as VisualOrder,
             cs.rank as SnapshotRank,
             cs.source_list_size as SourceListSize,
             cs.normalized_rank_score as NormalizedRankScore,
+            cs.freshness_score as FreshnessScore,
             ei.matched_at as MatchedAt
         from content_snapshot cs
         join event_item ei on ei.content_item_id = cs.content_item_id
         join event e on e.id = ei.event_id
         join content_item ci on ci.id = cs.content_item_id
         where cs.run_id = @RunId
-        order by e.last_seen_at, e.id, cs.rank;
+        order by e.last_seen_at, e.id, cs.rank nulls last, cs.visual_order;
         """, new { RunId = runId }, cancellationToken: cancellationToken))).ToList();
 
         return rows
@@ -178,7 +183,7 @@ public sealed class PostgresEventRepository : IEventRepository
             .Select(group => new RunEventScoringInput(
                 ToEventAggregate(group.First()),
                 group.Select(row => new RunEventContentEvidence(ToContentItem(row), ToContentSnapshot(row), row.MatchedAt))
-                    .OrderBy(evidence => evidence.Snapshot.Rank)
+                    .OrderBy(evidence => evidence.Snapshot.Rank ?? int.MaxValue)
                     .ToList()))
             .OrderBy(input => input.Event.LastSeenAt)
             .ToList();
@@ -254,12 +259,16 @@ public sealed class PostgresEventRepository : IEventRepository
             ls.calculated_at as CalculatedAt,
             ls.coverage_score as CoverageScore,
             ls.rank_score as RankScore,
+            ls.flash_score as FlashScore,
+            ls.freshness_score as FreshnessScore,
             ls.trend_score as TrendScore,
             ls.persistence_score as PersistenceScore,
             ls.llm_boost_score as LlmBoostScore,
             ls.reactivation_bonus as ReactivationBonus,
             ls.total_score as TotalScore,
             ls.unique_source_count as UniqueSourceCount,
+            ls.ranked_source_count as RankedSourceCount,
+            ls.flash_source_count as FlashSourceCount,
             ls.avg_rank as AvgRank,
             ls.avg_normalized_rank as AvgNormalizedRank,
             ls.heat_value as HeatValue,
@@ -279,22 +288,28 @@ public sealed class PostgresEventRepository : IEventRepository
     {
         await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
         await connection.ExecuteAsync(new CommandDefinition("""
-        insert into event_score_snapshot (id, event_id, run_id, calculated_at, coverage_score, rank_score, trend_score,
-            persistence_score, llm_boost_score, reactivation_bonus, total_score, unique_source_count, avg_rank,
-            avg_normalized_rank, heat_value, smoothed_heat_value, trend_evidence_count, current_stage, trigger_reasons)
-        values (@Id, @EventId, @RunId, @CalculatedAt, @CoverageScore, @RankScore, @TrendScore,
-            @PersistenceScore, @LlmBoostScore, @ReactivationBonus, @TotalScore, @UniqueSourceCount, @AvgRank,
-            @AvgNormalizedRank, @HeatValue, @SmoothedHeatValue, @TrendEvidenceCount, @CurrentStage, @TriggerReasons::jsonb)
+        insert into event_score_snapshot (id, event_id, run_id, calculated_at, coverage_score, rank_score, flash_score,
+            freshness_score, trend_score, persistence_score, llm_boost_score, reactivation_bonus, total_score,
+            unique_source_count, ranked_source_count, flash_source_count, avg_rank, avg_normalized_rank, heat_value,
+            smoothed_heat_value, trend_evidence_count, current_stage, trigger_reasons)
+        values (@Id, @EventId, @RunId, @CalculatedAt, @CoverageScore, @RankScore, @FlashScore,
+            @FreshnessScore, @TrendScore, @PersistenceScore, @LlmBoostScore, @ReactivationBonus, @TotalScore,
+            @UniqueSourceCount, @RankedSourceCount, @FlashSourceCount, @AvgRank, @AvgNormalizedRank, @HeatValue,
+            @SmoothedHeatValue, @TrendEvidenceCount, @CurrentStage, @TriggerReasons::jsonb)
         on conflict (id) do update
         set calculated_at = excluded.calculated_at,
             coverage_score = excluded.coverage_score,
             rank_score = excluded.rank_score,
+            flash_score = excluded.flash_score,
+            freshness_score = excluded.freshness_score,
             trend_score = excluded.trend_score,
             persistence_score = excluded.persistence_score,
             llm_boost_score = excluded.llm_boost_score,
             reactivation_bonus = excluded.reactivation_bonus,
             total_score = excluded.total_score,
             unique_source_count = excluded.unique_source_count,
+            ranked_source_count = excluded.ranked_source_count,
+            flash_source_count = excluded.flash_source_count,
             avg_rank = excluded.avg_rank,
             avg_normalized_rank = excluded.avg_normalized_rank,
             heat_value = excluded.heat_value,
@@ -448,12 +463,16 @@ public sealed class PostgresEventRepository : IEventRepository
             CalculatedAt = PostgresTimestamp.ToUtc(snapshot.CalculatedAt),
             snapshot.CoverageScore,
             snapshot.RankScore,
+            snapshot.FlashScore,
+            snapshot.FreshnessScore,
             snapshot.TrendScore,
             snapshot.PersistenceScore,
             snapshot.LlmBoostScore,
             snapshot.ReactivationBonus,
             snapshot.TotalScore,
             snapshot.UniqueSourceCount,
+            snapshot.RankedSourceCount,
+            snapshot.FlashSourceCount,
             snapshot.AvgRank,
             snapshot.AvgNormalizedRank,
             snapshot.HeatValue,
@@ -578,8 +597,10 @@ public sealed class PostgresEventRepository : IEventRepository
             Id = row.Id,
             DedupKey = row.DedupKey,
             Source = row.Source,
+            SourceId = row.SourceId,
             Category = row.Category,
             Type = row.Type,
+            ContentKind = row.ContentKind,
             SourceItemId = row.SourceItemId,
             Title = row.Title,
             Url = row.Url,
@@ -605,8 +626,10 @@ public sealed class PostgresEventRepository : IEventRepository
             Id = row.ContentId,
             DedupKey = row.ContentDedupKey,
             Source = row.ContentSource,
+            SourceId = row.ContentSourceId,
             Category = row.ContentCategory,
             Type = row.ContentType,
+            ContentKind = row.ContentKind,
             SourceItemId = row.SourceItemId,
             Title = row.ContentTitle,
             Url = row.ContentUrl,
@@ -634,11 +657,14 @@ public sealed class PostgresEventRepository : IEventRepository
             ContentItemId = row.SnapshotContentItemId,
             CapturedAt = row.CapturedAt,
             Source = row.SnapshotSource,
+            SourceId = row.SnapshotSourceId,
             Category = row.SnapshotCategory,
+            ContentKind = row.SnapshotContentKind,
             VisualOrder = row.VisualOrder,
             Rank = row.SnapshotRank,
             SourceListSize = row.SourceListSize,
-            NormalizedRankScore = row.NormalizedRankScore
+            NormalizedRankScore = row.NormalizedRankScore,
+            FreshnessScore = row.FreshnessScore
         };
 
     private static EventScoreSnapshot ToEventScoreSnapshot(EventScoreSnapshotRow row)
@@ -650,12 +676,16 @@ public sealed class PostgresEventRepository : IEventRepository
             CalculatedAt = row.CalculatedAt,
             CoverageScore = row.CoverageScore,
             RankScore = row.RankScore,
+            FlashScore = row.FlashScore,
+            FreshnessScore = row.FreshnessScore,
             TrendScore = row.TrendScore,
             PersistenceScore = row.PersistenceScore,
             LlmBoostScore = row.LlmBoostScore,
             ReactivationBonus = row.ReactivationBonus,
             TotalScore = row.TotalScore,
             UniqueSourceCount = row.UniqueSourceCount,
+            RankedSourceCount = row.RankedSourceCount,
+            FlashSourceCount = row.FlashSourceCount,
             AvgRank = row.AvgRank,
             AvgNormalizedRank = row.AvgNormalizedRank,
             HeatValue = row.HeatValue,
@@ -674,12 +704,16 @@ public sealed class PostgresEventRepository : IEventRepository
             CalculatedAt = row.CalculatedAt,
             CoverageScore = row.CoverageScore,
             RankScore = row.RankScore,
+            FlashScore = row.FlashScore,
+            FreshnessScore = row.FreshnessScore,
             TrendScore = row.TrendScore,
             PersistenceScore = row.PersistenceScore,
             LlmBoostScore = row.LlmBoostScore,
             ReactivationBonus = row.ReactivationBonus,
             TotalScore = row.TotalScore,
             UniqueSourceCount = row.UniqueSourceCount,
+            RankedSourceCount = row.RankedSourceCount,
+            FlashSourceCount = row.FlashSourceCount,
             AvgRank = row.AvgRank,
             AvgNormalizedRank = row.AvgNormalizedRank,
             HeatValue = row.HeatValue,
@@ -697,8 +731,10 @@ public sealed class PostgresEventRepository : IEventRepository
         public string Id { get; set; } = "";
         public string DedupKey { get; set; } = "";
         public string Source { get; set; } = "";
+        public string? SourceId { get; set; }
         public string Category { get; set; } = "";
         public string Type { get; set; } = "";
+        public string ContentKind { get; set; } = "ranked_news";
         public string SourceItemId { get; set; } = "";
         public string Title { get; set; } = "";
         public string Url { get; set; } = "";
@@ -756,12 +792,16 @@ public sealed class PostgresEventRepository : IEventRepository
         public DateTimeOffset CalculatedAt { get; set; }
         public double CoverageScore { get; set; }
         public double RankScore { get; set; }
+        public double FlashScore { get; set; }
+        public double FreshnessScore { get; set; }
         public double TrendScore { get; set; }
         public double PersistenceScore { get; set; }
         public double LlmBoostScore { get; set; }
         public double ReactivationBonus { get; set; }
         public double TotalScore { get; set; }
         public int UniqueSourceCount { get; set; }
+        public int RankedSourceCount { get; set; }
+        public int FlashSourceCount { get; set; }
         public double AvgRank { get; set; }
         public double AvgNormalizedRank { get; set; }
         public double HeatValue { get; set; }
@@ -802,8 +842,10 @@ public sealed class PostgresEventRepository : IEventRepository
         public string ContentId { get; set; } = "";
         public string ContentDedupKey { get; set; } = "";
         public string ContentSource { get; set; } = "";
+        public string? ContentSourceId { get; set; }
         public string ContentCategory { get; set; } = "";
         public string ContentType { get; set; } = "";
+        public string ContentKind { get; set; } = "ranked_news";
         public string SourceItemId { get; set; } = "";
         public string ContentTitle { get; set; } = "";
         public string ContentUrl { get; set; } = "";
@@ -826,11 +868,14 @@ public sealed class PostgresEventRepository : IEventRepository
         public string SnapshotContentItemId { get; set; } = "";
         public DateTimeOffset CapturedAt { get; set; }
         public string SnapshotSource { get; set; } = "";
+        public string? SnapshotSourceId { get; set; }
         public string SnapshotCategory { get; set; } = "";
+        public string SnapshotContentKind { get; set; } = "ranked_news";
         public int VisualOrder { get; set; }
-        public int SnapshotRank { get; set; }
-        public int SourceListSize { get; set; }
-        public double NormalizedRankScore { get; set; }
+        public int? SnapshotRank { get; set; }
+        public int? SourceListSize { get; set; }
+        public double? NormalizedRankScore { get; set; }
+        public double FreshnessScore { get; set; }
         public DateTimeOffset MatchedAt { get; set; }
     }
 
@@ -868,12 +913,16 @@ public sealed class PostgresEventRepository : IEventRepository
         public DateTimeOffset CalculatedAt { get; set; }
         public double CoverageScore { get; set; }
         public double RankScore { get; set; }
+        public double FlashScore { get; set; }
+        public double FreshnessScore { get; set; }
         public double TrendScore { get; set; }
         public double PersistenceScore { get; set; }
         public double LlmBoostScore { get; set; }
         public double ReactivationBonus { get; set; }
         public double TotalScore { get; set; }
         public int UniqueSourceCount { get; set; }
+        public int RankedSourceCount { get; set; }
+        public int FlashSourceCount { get; set; }
         public double AvgRank { get; set; }
         public double AvgNormalizedRank { get; set; }
         public double HeatValue { get; set; }

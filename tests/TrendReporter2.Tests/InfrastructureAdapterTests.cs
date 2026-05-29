@@ -5,6 +5,7 @@ using TrendReporter2.Core.Configuration;
 using TrendReporter2.Core.Content;
 using TrendReporter2.Core.Events;
 using TrendReporter2.Core.Observability;
+using TrendReporter2.Core.Sources;
 using TrendReporter2.Infrastructure.Enrichment;
 using TrendReporter2.Infrastructure.Llm;
 using TrendReporter2.Infrastructure.News;
@@ -39,6 +40,88 @@ public sealed class InfrastructureAdapterTests
         Assert.Equal(2, items[1].Rank);
         Assert.Equal(4, items[1].SourceListSize);
         Assert.Equal("摘要一", items[0].HoverText);
+    }
+
+    [Fact]
+    public async Task NewsNowClient_ContentSourcePath_UsesExternalIdAndRankedMetadata()
+    {
+        var handler = new TestHttpMessageHandler(_ => TestHttpMessageHandler.Json(HttpStatusCode.OK, """
+        {
+          "status": "success",
+          "items": [
+            { "id": "n1", "title": "第一条", "url": "https://example.com/1", "mobileUrl": "https://m.example.com/1", "pubDate": 1710000000, "extra": { "hover": "摘要一" } }
+          ]
+        }
+        """));
+        IContentSourceClient client = new NewsNowClient(new HttpClient(handler), new AppConfig { NewsNow = new NewsNowConfig { BaseUrl = "https://news.local" } }, NullLoggerFactory.Instance);
+
+        var items = await client.FetchAsync(Source(ContentKind.RankedNews, provider: SourceProviders.NewsNow, externalId: "source-a"), CancellationToken.None);
+
+        var item = Assert.Single(items);
+        Assert.Equal("https://news.local/api/s?id=source-a", handler.Requests.Single().RequestUri?.ToString());
+        Assert.Equal(SourceProviders.NewsNow, client.Provider);
+        Assert.Equal("source-id", item.SourceId);
+        Assert.Equal(ContentKind.RankedNews, item.ContentKind);
+        Assert.Equal("tech", item.Category);
+        Assert.Equal("n1", item.SourceItemId);
+        Assert.Equal("source-id:n1", item.DedupKey);
+        Assert.Equal(1, item.Rank);
+        Assert.Equal(1, item.SourceListSize);
+        Assert.Equal("https://m.example.com/1", item.MobileUrl);
+        Assert.Equal("摘要一", item.HoverText);
+    }
+
+    [Fact]
+    public async Task DailyHotApiClient_RankedNews_ParsesItemsAndRequestUri()
+    {
+        var handler = new TestHttpMessageHandler(_ => TestHttpMessageHandler.Json(HttpStatusCode.OK, """
+        {
+          "code": 200,
+          "data": [
+            { "id": "dh-1", "title": "热榜一", "url": "https://example.com/1", "mobileUrl": "https://m.example.com/1", "desc": "摘要一", "extra": { "hover": "悬浮一" } },
+            { "name": "热榜二", "link": "https://example.com/2", "hot": "100万" },
+            "bad",
+            { "title": "", "url": "", "summary": "" }
+          ]
+        }
+        """));
+        var client = new DailyHotApiClient(new HttpClient(handler), Config(dailyHotApiBaseUrl: "https://hot.local/api"), NullLoggerFactory.Instance);
+
+        var items = await client.FetchAsync(Source(ContentKind.RankedNews, externalId: "weibo hot"), CancellationToken.None);
+
+        Assert.Equal("https://hot.local/api/weibo%20hot", handler.Requests.Single().RequestUri?.OriginalString);
+        Assert.Equal(SourceProviders.DailyHotApi, client.Provider);
+        Assert.Equal(2, items.Count);
+        Assert.Equal("dh-1", items[0].SourceItemId);
+        Assert.Equal("热榜一", items[0].Title);
+        Assert.Equal("https://m.example.com/1", items[0].MobileUrl);
+        Assert.Equal("摘要一", items[0].SummaryText);
+        Assert.Equal(1, items[0].Rank);
+        Assert.Equal(4, items[0].SourceListSize);
+        Assert.Equal(2, items[1].Rank);
+        Assert.Equal("100万", items[1].SummaryText);
+    }
+
+    [Fact]
+    public async Task DailyHotApiClient_FlashFeed_LeavesRankNullAndParsesPublishedTime()
+    {
+        var handler = new TestHttpMessageHandler(_ => TestHttpMessageHandler.Json(HttpStatusCode.OK, """
+        {
+          "data": [
+            { "title": "快讯一", "url": "https://example.com/flash", "summary": "快讯摘要", "extra": { "date": "2026-05-05T08:00:00Z" } }
+          ]
+        }
+        """));
+        var client = new DailyHotApiClient(new HttpClient(handler), Config(dailyHotApiBaseUrl: "https://hot.local"), NullLoggerFactory.Instance);
+
+        var items = await client.FetchAsync(Source(ContentKind.FlashFeed, externalId: "kuaixun"), CancellationToken.None);
+
+        var item = Assert.Single(items);
+        Assert.Equal(ContentKind.FlashFeed, item.ContentKind);
+        Assert.Null(item.Rank);
+        Assert.Null(item.SourceListSize);
+        Assert.Equal(new DateTimeOffset(2026, 5, 5, 8, 0, 0, TimeSpan.Zero), item.PublishedAt);
+        Assert.False(string.IsNullOrWhiteSpace(item.SourceItemId));
     }
 
     [Fact]
@@ -159,14 +242,18 @@ public sealed class InfrastructureAdapterTests
         Assert.Equal("HTTP 502", usage.Error);
     }
 
-    private static AppConfig Config(string webExtractUrl = "", string pusherUrl = "", string pusherSecret = "", string pusherCate = "default", string channels = "")
+    private static AppConfig Config(string webExtractUrl = "", string pusherUrl = "", string pusherSecret = "", string pusherCate = "default", string channels = "", string dailyHotApiBaseUrl = "")
         => new()
         {
             Database = new DatabaseConfig { Provider = "postgres", ConnectionString = "Host=localhost;Database=trend;Username=trend;Password=secret" },
+            Sources = new SourcesConfig { DailyHotApi = new SourceProviderConfig { BaseUrl = dailyHotApiBaseUrl } },
             Enrichment = new EnrichmentConfig { WebExtractUrl = webExtractUrl, MaxRequestsPerRun = 5, RetryCooldownHours = 12 },
             System = new SystemConfig { MaxParallelEnrichment = 1 },
             Pushers = string.IsNullOrWhiteSpace(pusherUrl) ? [] : [new PusherConfig { Type = "unipush", Url = pusherUrl, Secret = pusherSecret, Cate = pusherCate, Channels = channels }]
         };
+
+    private static SourceDefinition Source(string contentKind, string provider = SourceProviders.DailyHotApi, string externalId = "weibo")
+        => new("source-id", provider, externalId, "tech", "微博", contentKind, true, 1.0);
 
     private static ContentItem ContentItem()
         => new() { Id = "ci-1", Title = "原标题", Url = "https://example.com/original" };

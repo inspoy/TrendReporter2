@@ -1,4 +1,5 @@
 using TrendReporter2.Core.Configuration;
+using TrendReporter2.Core.Sources;
 
 namespace TrendReporter2.Tests;
 
@@ -110,6 +111,96 @@ public sealed class AppConfigValidatorTests
         Assert.Contains("system.timeZone 'Invalid/Zone' 在当前系统上未找到。", exception.Errors);
     }
 
+    [Fact]
+    public void Validate_AllowsEnabledDailyHotApiSourcesWithBaseUrl()
+    {
+        var config = WithSources(
+            ValidConfig(),
+            new SourcesConfig
+            {
+                DailyHotApi = new SourceProviderConfig
+                {
+                    BaseUrl = "https://dailyhot.local",
+                    Items =
+                    [
+                        new SourceItemConfig
+                        {
+                            Id = "dailyhot:weibo",
+                            ExternalId = "weibo",
+                            Category = "social",
+                            DisplayName = "微博热搜",
+                            ContentKind = ContentKind.RankedNews,
+                            Enabled = true,
+                            Weight = 1.2
+                        }
+                    ]
+                }
+            });
+
+        AppConfigValidator.Validate(config);
+    }
+
+    [Fact]
+    public void Validate_RejectsEnabledProviderGroupWithoutBaseUrl()
+    {
+        var config = WithSources(
+            ValidConfig(),
+            new SourcesConfig
+            {
+                DailyHotApi = new SourceProviderConfig
+                {
+                    Items =
+                    [
+                        new SourceItemConfig
+                        {
+                            Id = "dailyhot:weibo",
+                            ExternalId = "weibo",
+                            Category = "social",
+                            DisplayName = "微博热搜",
+                            ContentKind = ContentKind.RankedNews,
+                            Enabled = true,
+                            Weight = 1.0
+                        }
+                    ]
+                }
+            });
+
+        var exception = Assert.Throws<AppConfigValidationException>(() => AppConfigValidator.Validate(config));
+
+        Assert.Contains("sources.dailyHotApi.baseUrl 不能为空。", exception.Errors);
+    }
+
+    [Fact]
+    public void Validate_RejectsInvalidSourceContentKind()
+    {
+        var config = WithSources(
+            ValidConfig(),
+            new SourcesConfig
+            {
+                NewsNow = new SourceProviderConfig
+                {
+                    BaseUrl = "https://news.local",
+                    Items =
+                    [
+                        new SourceItemConfig
+                        {
+                            Id = "newsnow:china:ifeng",
+                            ExternalId = "ifeng",
+                            Category = "china",
+                            DisplayName = "凤凰网",
+                            ContentKind = "video",
+                            Enabled = true,
+                            Weight = 1.0
+                        }
+                    ]
+                }
+            });
+
+        var exception = Assert.Throws<AppConfigValidationException>(() => AppConfigValidator.Validate(config));
+
+        Assert.Contains("sources.newsNow.items[0].contentKind 必须是 ranked_news、flash_feed 或 topic。", exception.Errors);
+    }
+
     private static AppConfig ValidConfig()
         => new()
         {
@@ -159,7 +250,22 @@ public sealed class AppConfigValidatorTests
         => new()
         {
             NewsNow = config.NewsNow,
+            Sources = config.Sources,
             Database = database,
+            Analysis = config.Analysis,
+            Llm = config.Llm,
+            Enrichment = config.Enrichment,
+            Filters = config.Filters,
+            Pushers = config.Pushers,
+            System = config.System
+        };
+
+    private static AppConfig WithSources(AppConfig config, SourcesConfig sources)
+        => new()
+        {
+            NewsNow = config.NewsNow,
+            Sources = sources,
+            Database = config.Database,
             Analysis = config.Analysis,
             Llm = config.Llm,
             Enrichment = config.Enrichment,

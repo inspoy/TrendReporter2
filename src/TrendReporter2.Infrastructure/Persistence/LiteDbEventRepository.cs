@@ -154,7 +154,7 @@ public sealed class LiteDbEventRepository : IEventRepository
                         contentItems[item.ContentItemId],
                         snapshotsByContent[item.ContentItemId],
                         item.MatchedAt))
-                    .OrderBy(evidence => evidence.Snapshot.Rank)
+                    .OrderBy(evidence => evidence.Snapshot.Rank ?? int.MaxValue)
                     .ToList()))
             .OrderBy(input => input.Event.LastSeenAt)
             .ToList();

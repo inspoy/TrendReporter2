@@ -6,8 +6,8 @@ using TrendReporter2.Core.Content;
 using TrendReporter2.Core.Enrichment;
 using TrendReporter2.Core.Events;
 using TrendReporter2.Core.Fetch;
-using TrendReporter2.Core.News;
 using TrendReporter2.Core.Observability;
+using TrendReporter2.Core.Sources;
 using TrendReporter2.Infrastructure.Persistence;
 
 namespace TrendReporter2.Tests;
@@ -25,18 +25,22 @@ public sealed class PostgresRepositoryIntegrationTests
         }
 
         var fetchRuns = new PostgresFetchRunRepository(fixture.DataSource);
+        var sourceRepository = new PostgresSourceRepository(fixture.DataSource);
         var content = new PostgresContentRepository(fixture.DataSource, new EnrichmentPolicy(new AppConfig()), NullLoggerFactory.Instance);
         var startedAt = DateTimeOffset.UtcNow;
+        await sourceRepository.UpsertSourcesAsync([Source("source-a", "tech", ContentKind.RankedNews)], CancellationToken.None);
         var run = await fetchRuns.CreateAsync(1, startedAt, CancellationToken.None);
         var pubTimeWithOffset = DateTimeOffset.Parse("2026-05-05T16:20:00+08:00");
-        var item = new NewsItem
+        var item = new FetchedContentItem
         {
             Category = "tech",
-            Source = "source-a",
+            SourceId = "source-a",
+            ContentKind = ContentKind.RankedNews,
             SourceItemId = "item-1",
+            DedupKey = "source-a:item-1",
             Title = "AI company announces major product update",
             Url = "https://example.test/news/1",
-            PubTime = pubTimeWithOffset,
+            PublishedAt = pubTimeWithOffset,
             HoverText = "AI company announces major product update with enough context for matching.",
             Rank = 1,
             SourceListSize = 10,
@@ -44,14 +48,16 @@ public sealed class PostgresRepositoryIntegrationTests
         };
 
         var first = await content.IngestAsync(run.Id, [item], startedAt, CancellationToken.None);
-        var second = await content.IngestAsync(run.Id, [new NewsItem
+        var second = await content.IngestAsync(run.Id, [new FetchedContentItem
         {
             Category = item.Category,
-            Source = item.Source,
+            SourceId = item.SourceId,
+            ContentKind = item.ContentKind,
             SourceItemId = item.SourceItemId,
+            DedupKey = item.DedupKey,
             Title = "AI company announces updated product details",
             Url = item.Url,
-            PubTime = pubTimeWithOffset,
+            PublishedAt = pubTimeWithOffset,
             HoverText = item.HoverText,
             Rank = item.Rank,
             SourceListSize = item.SourceListSize,
@@ -86,15 +92,19 @@ public sealed class PostgresRepositoryIntegrationTests
 
         var now = DateTimeOffset.UtcNow;
         var fetchRuns = new PostgresFetchRunRepository(fixture.DataSource);
+        var sourceRepository = new PostgresSourceRepository(fixture.DataSource);
         var content = new PostgresContentRepository(fixture.DataSource, new EnrichmentPolicy(new AppConfig()), NullLoggerFactory.Instance);
         var events = new PostgresEventRepository(fixture.DataSource);
         var appState = new PostgresAppStateRepository(fixture.DataSource);
+        await sourceRepository.UpsertSourcesAsync([Source("source-a", "world", ContentKind.RankedNews)], CancellationToken.None);
         var run = await fetchRuns.CreateAsync(1, now, CancellationToken.None);
-        await content.IngestAsync(run.Id, [new NewsItem
+        await content.IngestAsync(run.Id, [new FetchedContentItem
         {
             Category = "world",
-            Source = "source-a",
+            SourceId = "source-a",
+            ContentKind = ContentKind.RankedNews,
             SourceItemId = "item-1",
+            DedupKey = "source-a:item-1",
             Title = "Major summit reaches new climate agreement",
             Url = "https://example.test/news/1",
             HoverText = "Major summit reaches a new climate agreement after all-night talks.",
@@ -148,8 +158,12 @@ public sealed class PostgresRepositoryIntegrationTests
             CalculatedAt = now,
             CoverageScore = 1,
             RankScore = 0.9,
+            FlashScore = 0.7,
+            FreshnessScore = 0.8,
             TotalScore = 80,
             UniqueSourceCount = 2,
+            RankedSourceCount = 1,
+            FlashSourceCount = 1,
             AvgRank = 2,
             AvgNormalizedRank = 0.9,
             HeatValue = 0.9,
@@ -183,6 +197,7 @@ public sealed class PostgresRepositoryIntegrationTests
         await appState.UpsertAsync(new AppState { Key = "digest:processed:test", Value = "second", UpdatedAt = now.AddMinutes(1) }, CancellationToken.None);
 
         var scoringInputs = await events.LoadRunEventScoringInputsAsync(run.Id, CancellationToken.None);
+        var recentScores = await events.LoadRecentScoreSnapshotsAsync([eventAggregate.Id], now.AddHours(-1), CancellationToken.None);
         var digestCandidates = await events.LoadDigestCandidatesAsync(now.AddHours(-1), 10, CancellationToken.None);
         var state = await appState.GetAsync("digest:processed:test", CancellationToken.None);
 
@@ -191,7 +206,16 @@ public sealed class PostgresRepositoryIntegrationTests
         Assert.True(insertedPush);
         Assert.False(duplicatePush);
         Assert.Single(scoringInputs);
-        Assert.Single(digestCandidates);
+        var recentScore = Assert.Single(recentScores);
+        Assert.Equal(0.7, recentScore.FlashScore, 3);
+        Assert.Equal(0.8, recentScore.FreshnessScore, 3);
+        Assert.Equal(1, recentScore.RankedSourceCount);
+        Assert.Equal(1, recentScore.FlashSourceCount);
+        var digestScore = Assert.Single(digestCandidates).Score;
+        Assert.Equal(0.7, digestScore.FlashScore, 3);
+        Assert.Equal(0.8, digestScore.FreshnessScore, 3);
+        Assert.Equal(1, digestScore.RankedSourceCount);
+        Assert.Equal(1, digestScore.FlashSourceCount);
         Assert.Equal("second", state?.Value);
     }
 
@@ -262,6 +286,20 @@ public sealed class PostgresRepositoryIntegrationTests
         Assert.Equal(0.00170000m, await connection.ExecuteScalarAsync<decimal>("select estimated_llm_cost from fetch_run where id = @RunId;", new { RunId = run.Id }));
     }
 
+    [Fact]
+    public void PostgresContentRepository_CalculateFreshnessScore_ForFlashItemsDoesNotRequireRank()
+    {
+        var capturedAt = new DateTimeOffset(2026, 5, 5, 12, 0, 0, TimeSpan.Zero);
+
+        var fresh = PostgresContentRepository.CalculateFreshnessScore(ContentKind.FlashFeed, capturedAt.AddHours(-6), capturedAt);
+        var old = PostgresContentRepository.CalculateFreshnessScore(ContentKind.FlashFeed, capturedAt.AddHours(-48), capturedAt);
+
+        Assert.Null(PostgresContentRepository.CalculateNormalizedRankScore(null, null));
+        Assert.InRange(fresh, 0, 1);
+        Assert.InRange(old, 0, 1);
+        Assert.True(fresh > old);
+    }
+
     private sealed class PostgresFixture : IAsyncDisposable
     {
         private readonly NpgsqlDataSource _adminDataSource;
@@ -330,4 +368,7 @@ public sealed class PostgresRepositoryIntegrationTests
         private static string QuoteIdentifier(string identifier)
             => "\"" + identifier.Replace("\"", "\"\"", StringComparison.Ordinal) + "\"";
     }
+
+    private static SourceDefinition Source(string id, string category, string contentKind)
+        => new(id, SourceProviders.NewsNow, id, category, id, contentKind, true, 1.0);
 }

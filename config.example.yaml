@@ -27,6 +27,42 @@ newsNow:
       - cls-hot
       - jin10
 
+sources:
+  newsNow:
+    baseUrl: "http://localhost:3000"
+    items:
+      - id: "newsnow:china:ifeng"
+        externalId: "ifeng"
+        category: "china"
+        displayName: "凤凰网"
+        contentKind: "ranked_news"
+        enabled: true
+        weight: 1.0
+      - id: "newsnow:tech:hackernews"
+        externalId: "hackernews"
+        category: "tech"
+        displayName: "Hacker News"
+        contentKind: "ranked_news"
+        enabled: true
+        weight: 1.0
+  dailyHotApi:
+    baseUrl: "http://localhost:6688"
+    items:
+      - id: "dailyhotapi:social:weibo"
+        externalId: "weibo"
+        category: "social"
+        displayName: "微博热搜"
+        contentKind: "ranked_news"
+        enabled: true
+        weight: 1.0
+      - id: "dailyhotapi:flash:cls-telegraph"
+        externalId: "cls-telegraph"
+        category: "finance"
+        displayName: "财联社电报"
+        contentKind: "flash_feed"
+        enabled: true
+        weight: 1.0
+
 database:
   provider: "postgres"
   connectionString: "Host=localhost;Port=5432;Database=trendreporter;Username=trendreporter;Password=trendreporter"

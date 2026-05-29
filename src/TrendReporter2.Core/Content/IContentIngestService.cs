@@ -1,4 +1,4 @@
-using TrendReporter2.Core.News;
+using TrendReporter2.Core.Sources;
 
 namespace TrendReporter2.Core.Content;
 
@@ -6,7 +6,7 @@ public interface IContentIngestService
 {
     Task<ContentIngestResult> IngestAsync(
         string runId,
-        IReadOnlyList<NewsItem> items,
+        IReadOnlyList<FetchedContentItem> items,
         DateTimeOffset capturedAt,
         CancellationToken cancellationToken);
 }

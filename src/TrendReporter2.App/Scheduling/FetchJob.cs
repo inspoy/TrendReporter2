@@ -8,15 +8,17 @@ using TrendReporter2.Core.Enrichment;
 using TrendReporter2.Core.Events;
 using TrendReporter2.Core.Fetch;
 using TrendReporter2.Core.Jobs;
-using TrendReporter2.Core.News;
 using TrendReporter2.Core.Observability;
+using TrendReporter2.Core.Sources;
 
 namespace TrendReporter2.App.Scheduling;
 
 public sealed class FetchJob : IFetchJob
 {
     private readonly AppConfig _config;
-    private readonly INewsSourceClient _newsSourceClient;
+    private readonly ISourceRegistry _sourceRegistry;
+    private readonly ISourceRepository _sourceRepository;
+    private readonly IReadOnlyDictionary<string, IContentSourceClient> _contentSourceClients;
     private readonly IContentIngestService _contentIngestService;
     private readonly IEnrichmentService _enrichmentService;
     private readonly IEventMatcher _eventMatcher;
@@ -27,7 +29,9 @@ public sealed class FetchJob : IFetchJob
 
     public FetchJob(
         AppConfig config,
-        INewsSourceClient newsSourceClient,
+        ISourceRegistry sourceRegistry,
+        ISourceRepository sourceRepository,
+        IEnumerable<IContentSourceClient> contentSourceClients,
         IContentIngestService contentIngestService,
         IEnrichmentService enrichmentService,
         IEventMatcher eventMatcher,
@@ -37,7 +41,11 @@ public sealed class FetchJob : IFetchJob
         ILoggerFactory loggerFactory)
     {
         _config = config;
-        _newsSourceClient = newsSourceClient;
+        _sourceRegistry = sourceRegistry;
+        _sourceRepository = sourceRepository;
+        _contentSourceClients = contentSourceClients
+            .GroupBy(client => client.Provider, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
         _contentIngestService = contentIngestService;
         _enrichmentService = enrichmentService;
         _eventMatcher = eventMatcher;
@@ -49,7 +57,8 @@ public sealed class FetchJob : IFetchJob
 
     public async Task RunAsync(CancellationToken cancellationToken)
     {
-        var sources = GetConfiguredSources();
+        var configuredSources = _sourceRegistry.GetSources();
+        var sources = configuredSources.Where(source => source.Enabled).ToList();
         var startedAt = DateTimeOffset.UtcNow;
         var fetchRun = await _fetchRunRepository.CreateAsync(sources.Count, startedAt, cancellationToken);
 
@@ -60,6 +69,7 @@ public sealed class FetchJob : IFetchJob
 
         try
         {
+            await _sourceRepository.UpsertSourcesAsync(configuredSources, cancellationToken);
             var sourceResults = await RecordStageAsync(
                 fetchRun.Id,
                 RunStageNames.Fetch,
@@ -68,7 +78,8 @@ public sealed class FetchJob : IFetchJob
             foreach (var sourceResult in sourceResults.Where(result => result.Success))
             {
                 _logger.LogInformation(
-                    "NewsNow 来源抓取成功，来源={Source}，分类={Category}，条目={ItemCount}。",
+                    "来源抓取成功，provider={Provider}，来源={Source}，分类={Category}，条目={ItemCount}。",
+                    sourceResult.Definition.Provider,
                     sourceResult.Source,
                     sourceResult.Category,
                     sourceResult.Items.Count);
@@ -202,7 +213,7 @@ public sealed class FetchJob : IFetchJob
 
     private async Task<List<SourceFetchResult>> FetchSourcesAsync(
         string runId,
-        IReadOnlyList<ConfiguredSource> sources,
+        IReadOnlyList<SourceDefinition> sources,
         CancellationToken cancellationToken)
     {
         using var semaphore = new SemaphoreSlim(_config.System.MaxParallelFetch);
@@ -213,7 +224,7 @@ public sealed class FetchJob : IFetchJob
 
     private async Task<SourceFetchResult> FetchSourceAsync(
         string runId,
-        ConfiguredSource source,
+        SourceDefinition source,
         SemaphoreSlim semaphore,
         CancellationToken cancellationToken)
     {
@@ -221,8 +232,15 @@ public sealed class FetchJob : IFetchJob
         var stopwatch = Stopwatch.StartNew();
         try
         {
-            var items = await _newsSourceClient.FetchAsync(source.Category, source.Source, cancellationToken);
-            var result = SourceFetchResult.Succeeded(source.Category, source.Source, items);
+            if (!_contentSourceClients.TryGetValue(source.Provider, out var client))
+            {
+                var missingClient = SourceFetchResult.Failed(source, $"未注册内容来源客户端，provider={source.Provider}。");
+                await RecordSourceAsync(runId, missingClient, stopwatch.ElapsedMilliseconds, cancellationToken);
+                return missingClient;
+            }
+
+            var items = await client.FetchAsync(source, cancellationToken);
+            var result = SourceFetchResult.Succeeded(source, items);
             await RecordSourceAsync(runId, result, stopwatch.ElapsedMilliseconds, cancellationToken);
             return result;
         }
@@ -230,10 +248,11 @@ public sealed class FetchJob : IFetchJob
         {
             _logger.LogWarning(
                 ex,
-                "抓取 NewsNow 来源失败，来源={Source}，分类={Category}。",
-                source.Source,
+                "抓取来源失败，provider={Provider}，来源={Source}，分类={Category}。",
+                source.Provider,
+                source.ExternalId,
                 source.Category);
-            var result = SourceFetchResult.Failed(source.Category, source.Source, ex);
+            var result = SourceFetchResult.Failed(source, ex);
             await RecordSourceAsync(runId, result, stopwatch.ElapsedMilliseconds, cancellationToken);
             return result;
         }
@@ -241,14 +260,6 @@ public sealed class FetchJob : IFetchJob
         {
             semaphore.Release();
         }
-    }
-
-    private List<ConfiguredSource> GetConfiguredSources()
-    {
-        return _config.NewsNow.Sources
-            .SelectMany(category => category.Value.Select(source => new ConfiguredSource(category.Key, source)))
-            .Where(source => !string.IsNullOrWhiteSpace(source.Source))
-            .ToList();
     }
 
     private static string DetermineStatus(FetchRun fetchRun)
@@ -260,8 +271,6 @@ public sealed class FetchJob : IFetchJob
 
         return fetchRun.SuccessSourceCount > 0 ? FetchRunStatuses.Partial : FetchRunStatuses.Failed;
     }
-
-    private sealed record ConfiguredSource(string Category, string Source);
 
     private async Task<T> RecordStageAsync<T>(
         string runId,
@@ -321,20 +330,22 @@ public sealed class FetchJob : IFetchJob
         CancellationToken cancellationToken)
         => _telemetryRecorder.RecordSourceAsync(new RunSourceTelemetry(
             runId,
-            BuildSourceId(result.Category, result.Source),
+            result.Definition.Id,
             result.Category,
-            result.Source,
+            BuildTelemetrySource(result.Definition),
             result.Success ? RunTelemetryStatuses.Succeeded : RunTelemetryStatuses.Failed,
             ToDurationMs(durationMs),
             result.Items.Count,
             result.Error,
             DateTimeOffset.UtcNow), cancellationToken);
 
-    private static string BuildSourceId(string category, string source)
-        => $"{category}/{source}";
-
     private static string BuildStageId(string runId, string stage, DateTimeOffset startedAt)
         => $"frs:{ShortHash($"{runId}|{stage}|{startedAt.UtcTicks}")}";
+
+    private static string BuildTelemetrySource(SourceDefinition source)
+        => string.Equals(source.ExternalId, source.DisplayName, StringComparison.OrdinalIgnoreCase)
+            ? source.ExternalId
+            : $"{source.ExternalId}/{source.DisplayName}";
 
     private static int ToDurationMs(long elapsedMs)
         => elapsedMs > int.MaxValue ? int.MaxValue : Math.Max(0, (int)elapsedMs);

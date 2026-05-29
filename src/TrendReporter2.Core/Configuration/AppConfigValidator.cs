@@ -1,4 +1,5 @@
 using System.Globalization;
+using TrendReporter2.Core.Sources;
 
 namespace TrendReporter2.Core.Configuration;
 
@@ -11,6 +12,8 @@ public static class AppConfigValidator
         var errors = new List<string>();
 
         Require(!string.IsNullOrWhiteSpace(config.NewsNow.BaseUrl), "newsNow.baseUrl 不能为空。");
+        ValidateSourceProvider("sources.newsNow", config.Sources.NewsNow);
+        ValidateSourceProvider("sources.dailyHotApi", config.Sources.DailyHotApi);
 
         if (config.Database is null)
         {
@@ -89,6 +92,27 @@ public static class AppConfigValidator
             Require(IsNonNegativeFinite(pricing.CacheRead), $"{path}.cacheRead 必须是有限且非负的数字。");
             Require(IsNonNegativeFinite(pricing.Input), $"{path}.input 必须是有限且非负的数字。");
             Require(IsNonNegativeFinite(pricing.Output), $"{path}.output 必须是有限且非负的数字。");
+        }
+
+        void ValidateSourceProvider(string path, SourceProviderConfig providerConfig)
+        {
+            if (providerConfig.Items.Any(item => item.Enabled))
+            {
+                Require(!string.IsNullOrWhiteSpace(providerConfig.BaseUrl), $"{path}.baseUrl 不能为空。");
+            }
+
+            for (var index = 0; index < providerConfig.Items.Count; index++)
+            {
+                var item = providerConfig.Items[index];
+                var itemPath = $"{path}.items[{index}]";
+
+                Require(!string.IsNullOrWhiteSpace(item.Id), $"{itemPath}.id 不能为空。");
+                Require(!string.IsNullOrWhiteSpace(item.ExternalId), $"{itemPath}.externalId 不能为空。");
+                Require(!string.IsNullOrWhiteSpace(item.Category), $"{itemPath}.category 不能为空。");
+                Require(!string.IsNullOrWhiteSpace(item.ContentKind), $"{itemPath}.contentKind 不能为空。");
+                Require(ContentKind.IsDefined(item.ContentKind), $"{itemPath}.contentKind 必须是 ranked_news、flash_feed 或 topic。");
+                Require(double.IsFinite(item.Weight) && item.Weight > 0, $"{itemPath}.weight 必须是有限且大于 0 的数字。");
+            }
         }
     }
 

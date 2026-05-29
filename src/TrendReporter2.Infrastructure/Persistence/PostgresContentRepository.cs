@@ -5,7 +5,7 @@ using Microsoft.Extensions.Logging;
 using Npgsql;
 using TrendReporter2.Core.Content;
 using TrendReporter2.Core.Enrichment;
-using TrendReporter2.Core.News;
+using TrendReporter2.Core.Sources;
 
 namespace TrendReporter2.Infrastructure.Persistence;
 
@@ -32,7 +32,7 @@ public sealed class PostgresContentRepository : IContentIngestService
 
     public async Task<ContentIngestResult> IngestAsync(
         string runId,
-        IReadOnlyList<NewsItem> items,
+        IReadOnlyList<FetchedContentItem> items,
         DateTimeOffset capturedAt,
         CancellationToken cancellationToken)
     {
@@ -49,7 +49,7 @@ public sealed class PostgresContentRepository : IContentIngestService
             cancellationToken.ThrowIfCancellationRequested();
             visualOrder++;
 
-            var dedupKey = BuildDedupKey(item.Source, item.SourceItemId);
+            var dedupKey = BuildDedupKey(item);
             var existing = await LoadByDedupKeyAsync(connection, dedupKey, transaction, cancellationToken);
             ContentItem persisted;
 
@@ -61,13 +61,15 @@ public sealed class PostgresContentRepository : IContentIngestService
                 {
                     Id = BuildContentItemId(item),
                     DedupKey = dedupKey,
-                    Source = item.Source,
+                    Source = item.SourceId,
+                    SourceId = item.SourceId,
                     Category = item.Category,
+                    ContentKind = item.ContentKind,
                     SourceItemId = item.SourceItemId,
                     Title = item.Title,
                     Url = item.Url,
                     MobileUrl = item.MobileUrl,
-                    PubTime = item.PubTime,
+                    PubTime = item.PublishedAt,
                     HoverText = item.HoverText,
                     Summary = summary.Value,
                     SummarySource = summary.Source,
@@ -77,7 +79,7 @@ public sealed class PostgresContentRepository : IContentIngestService
                     UpdatedAt = capturedAt,
                     LastSeenRunId = runId,
                     LastSeenAt = capturedAt,
-                    LastSeenRank = item.Rank,
+                    LastSeenRank = item.Rank ?? 0,
                     RawPayload = PostgresJson.EmptyObjectIfBlank(item.RawPayload)
                 };
                 await UpsertContentItemAsync(connection, persisted, transaction, cancellationToken);
@@ -86,10 +88,13 @@ public sealed class PostgresContentRepository : IContentIngestService
             else
             {
                 existing.Category = item.Category;
+                existing.SourceId = item.SourceId;
+                existing.Source = item.SourceId;
+                existing.ContentKind = item.ContentKind;
                 existing.Title = item.Title;
                 existing.Url = item.Url;
                 existing.MobileUrl = item.MobileUrl;
-                existing.PubTime = item.PubTime;
+                existing.PubTime = item.PublishedAt;
                 existing.HoverText = item.HoverText;
                 existing.NeedEnrichment = _enrichmentPolicy.NeedEnrichment(item);
                 if (ShouldRefreshSourceSummary(existing.Summary, existing.SummarySource))
@@ -111,7 +116,7 @@ public sealed class PostgresContentRepository : IContentIngestService
                 existing.UpdatedAt = capturedAt;
                 existing.LastSeenRunId = runId;
                 existing.LastSeenAt = capturedAt;
-                existing.LastSeenRank = item.Rank;
+                existing.LastSeenRank = item.Rank ?? 0;
                 existing.RawPayload = PostgresJson.EmptyObjectIfBlank(item.RawPayload);
                 await UpsertContentItemAsync(connection, existing, transaction, cancellationToken);
                 persisted = existing;
@@ -124,12 +129,15 @@ public sealed class PostgresContentRepository : IContentIngestService
                 RunId = runId,
                 ContentItemId = persisted.Id,
                 CapturedAt = capturedAt,
-                Source = item.Source,
+                Source = item.SourceId,
+                SourceId = item.SourceId,
                 Category = item.Category,
+                ContentKind = item.ContentKind,
                 VisualOrder = visualOrder,
                 Rank = item.Rank,
                 SourceListSize = item.SourceListSize,
-                NormalizedRankScore = CalculateNormalizedRankScore(item.Rank, item.SourceListSize)
+                NormalizedRankScore = CalculateNormalizedRankScore(item.Rank, item.SourceListSize),
+                FreshnessScore = CalculateFreshnessScore(item.ContentKind, item.PublishedAt, capturedAt)
             };
             await InsertSnapshotAsync(connection, snapshot, transaction, cancellationToken);
             snapshotCount++;
@@ -190,16 +198,18 @@ public sealed class PostgresContentRepository : IContentIngestService
         Npgsql.NpgsqlTransaction? transaction,
         CancellationToken cancellationToken)
         => connection.ExecuteAsync(new CommandDefinition("""
-        insert into content_item (id, dedup_key, source, category, type, source_item_id, title, url, mobile_url, pub_time,
+        insert into content_item (id, dedup_key, source, source_id, category, type, content_kind, source_item_id, title, url, mobile_url, pub_time,
             hover_text, summary, summary_source, need_enrichment, enrichment_status, enrichment_tried_at, created_at,
             updated_at, last_seen_run_id, last_seen_at, last_seen_rank, raw_payload)
-        values (@Id, @DedupKey, @Source, @Category, @Type, @SourceItemId, @Title, @Url, @MobileUrl, @PubTime,
+        values (@Id, @DedupKey, @Source, @SourceId, @Category, @Type, @ContentKind, @SourceItemId, @Title, @Url, @MobileUrl, @PubTime,
             @HoverText, @Summary, @SummarySource, @NeedEnrichment, @EnrichmentStatus, @EnrichmentTriedAt, @CreatedAt,
             @UpdatedAt, @LastSeenRunId, @LastSeenAt, @LastSeenRank, @RawPayload::jsonb)
         on conflict (dedup_key) do update
         set source = excluded.source,
+            source_id = excluded.source_id,
             category = excluded.category,
             type = excluded.type,
+            content_kind = excluded.content_kind,
             source_item_id = excluded.source_item_id,
             title = excluded.title,
             url = excluded.url,
@@ -224,8 +234,8 @@ public sealed class PostgresContentRepository : IContentIngestService
         Npgsql.NpgsqlTransaction transaction,
         CancellationToken cancellationToken)
         => connection.ExecuteAsync(new CommandDefinition("""
-        insert into content_snapshot (id, run_id, content_item_id, captured_at, source, category, visual_order, rank, source_list_size, normalized_rank_score)
-        values (@Id, @RunId, @ContentItemId, @CapturedAt, @Source, @Category, @VisualOrder, @Rank, @SourceListSize, @NormalizedRankScore)
+        insert into content_snapshot (id, run_id, content_item_id, captured_at, source, source_id, category, content_kind, visual_order, rank, source_list_size, normalized_rank_score, freshness_score)
+        values (@Id, @RunId, @ContentItemId, @CapturedAt, @Source, @SourceId, @Category, @ContentKind, @VisualOrder, @Rank, @SourceListSize, @NormalizedRankScore, @FreshnessScore)
         on conflict (run_id, content_item_id) do nothing;
         """, ToParameters(snapshot), transaction, cancellationToken: cancellationToken));
 
@@ -235,8 +245,10 @@ public sealed class PostgresContentRepository : IContentIngestService
             item.Id,
             item.DedupKey,
             item.Source,
+            item.SourceId,
             item.Category,
             item.Type,
+            item.ContentKind,
             item.SourceItemId,
             item.Title,
             item.Url,
@@ -264,11 +276,14 @@ public sealed class PostgresContentRepository : IContentIngestService
             snapshot.ContentItemId,
             CapturedAt = PostgresTimestamp.ToUtc(snapshot.CapturedAt),
             snapshot.Source,
+            snapshot.SourceId,
             snapshot.Category,
+            snapshot.ContentKind,
             snapshot.VisualOrder,
             snapshot.Rank,
             snapshot.SourceListSize,
-            snapshot.NormalizedRankScore
+            snapshot.NormalizedRankScore,
+            snapshot.FreshnessScore
         };
 
     private static ContentItem ToContentItem(ContentItemRow row)
@@ -277,8 +292,10 @@ public sealed class PostgresContentRepository : IContentIngestService
             Id = row.Id,
             DedupKey = row.DedupKey,
             Source = row.Source,
+            SourceId = row.SourceId,
             Category = row.Category,
             Type = row.Type,
+            ContentKind = row.ContentKind,
             SourceItemId = row.SourceItemId,
             Title = row.Title,
             Url = row.Url,
@@ -298,14 +315,16 @@ public sealed class PostgresContentRepository : IContentIngestService
             RawPayload = PostgresJson.EmptyObjectIfBlank(row.RawPayload)
         };
 
-    private static string BuildDedupKey(string source, string sourceItemId)
-        => $"{source.Trim().ToLowerInvariant()}|{sourceItemId.Trim()}";
+    private static string BuildDedupKey(FetchedContentItem item)
+        => string.IsNullOrWhiteSpace(item.DedupKey)
+            ? $"{item.SourceId.Trim().ToLowerInvariant()}|{item.SourceItemId.Trim()}"
+            : item.DedupKey.Trim().ToLowerInvariant();
 
-    private static IEnumerable<NewsItem> OrderForDisplay(IEnumerable<NewsItem> items)
+    private static IEnumerable<FetchedContentItem> OrderForDisplay(IEnumerable<FetchedContentItem> items)
         => items
             .OrderBy(item => item.Category, StringComparer.OrdinalIgnoreCase)
-            .ThenBy(item => item.Source, StringComparer.OrdinalIgnoreCase)
-            .ThenBy(item => item.Rank)
+            .ThenBy(item => item.SourceId, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(item => item.Rank ?? int.MaxValue)
             .ThenBy(item => item.Title, StringComparer.OrdinalIgnoreCase);
 
     private static bool ShouldRefreshSourceSummary(string? summary, string? source)
@@ -313,16 +332,19 @@ public sealed class PostgresContentRepository : IContentIngestService
             string.Equals(source, SummarySources.TitleOnly, StringComparison.OrdinalIgnoreCase) ||
             string.Equals(source, SummarySources.HoverText, StringComparison.OrdinalIgnoreCase);
 
-    private static (string Value, string Source) BuildPreferredSummary(NewsItem item)
-        => string.IsNullOrWhiteSpace(item.HoverText)
+    private static (string Value, string Source) BuildPreferredSummary(FetchedContentItem item)
+    {
+        var summary = string.IsNullOrWhiteSpace(item.SummaryText) ? item.HoverText : item.SummaryText;
+        return string.IsNullOrWhiteSpace(summary)
             ? (item.Title.Trim(), SummarySources.TitleOnly)
-            : (item.HoverText.Trim(), SummarySources.HoverText);
+            : (summary.Trim(), SummarySources.HoverText);
+    }
 
-    private static string BuildContentItemId(NewsItem item)
-        => $"ci:{SafeIdPart(item.Category)}:{SafeIdPart(item.Source)}:{ShortHash(item.SourceItemId)}";
+    private static string BuildContentItemId(FetchedContentItem item)
+        => $"ci:{SafeIdPart(item.Category)}:{SafeIdPart(item.SourceId)}:{ShortHash(item.SourceItemId)}";
 
-    private static string BuildSnapshotId(string runId, int visualOrder, NewsItem item)
-        => $"{runId}:snap:{visualOrder:D5}:{SafeIdPart(item.Category)}:{SafeIdPart(item.Source)}:r{item.Rank:D4}";
+    private static string BuildSnapshotId(string runId, int visualOrder, FetchedContentItem item)
+        => $"{runId}:snap:{visualOrder:D5}:{SafeIdPart(item.Category)}:{SafeIdPart(item.SourceId)}:r{(item.Rank ?? 0):D4}";
 
     private static string SafeIdPart(string value)
     {
@@ -342,14 +364,30 @@ public sealed class PostgresContentRepository : IContentIngestService
         return Convert.ToHexString(hash)[..16].ToLowerInvariant();
     }
 
-    private static double CalculateNormalizedRankScore(int rank, int sourceListSize)
+    public static double? CalculateNormalizedRankScore(int? rank, int? sourceListSize)
     {
+        if (rank is null || sourceListSize is null)
+        {
+            return null;
+        }
+
         if (sourceListSize <= 1)
         {
             return 1;
         }
 
-        return Math.Clamp(1 - ((double)rank - 1) / (sourceListSize - 1), 0, 1);
+        return Math.Clamp(1 - ((double)rank.Value - 1) / (sourceListSize.Value - 1), 0, 1);
+    }
+
+    public static double CalculateFreshnessScore(string contentKind, DateTimeOffset? publishedAt, DateTimeOffset capturedAt)
+    {
+        if (!string.Equals(contentKind, ContentKind.FlashFeed, StringComparison.OrdinalIgnoreCase) || publishedAt is null)
+        {
+            return 0;
+        }
+
+        var ageHours = Math.Max(0, (capturedAt - publishedAt.Value).TotalHours);
+        return Math.Clamp(1 / (1 + ageHours / 24), 0, 1);
     }
 
     private sealed class ContentItemRow
@@ -357,8 +395,10 @@ public sealed class PostgresContentRepository : IContentIngestService
         public string Id { get; set; } = "";
         public string DedupKey { get; set; } = "";
         public string Source { get; set; } = "";
+        public string? SourceId { get; set; }
         public string Category { get; set; } = "";
         public string Type { get; set; } = "";
+        public string ContentKind { get; set; } = TrendReporter2.Core.Sources.ContentKind.RankedNews;
         public string SourceItemId { get; set; } = "";
         public string Title { get; set; } = "";
         public string Url { get; set; } = "";

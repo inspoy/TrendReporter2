@@ -3,6 +3,7 @@ using System.Text;
 using TrendReporter2.Core.Configuration;
 using TrendReporter2.Core.Content;
 using TrendReporter2.Core.News;
+using TrendReporter2.Core.Sources;
 
 namespace TrendReporter2.Core.Enrichment;
 
@@ -47,6 +48,14 @@ public sealed class EnrichmentPolicy : IEnrichmentPolicy
             item.Source,
             item.Title,
             item.HoverText);
+    }
+
+    public bool NeedEnrichment(FetchedContentItem item)
+    {
+        return NeedEnrichment(
+            item.SourceId,
+            item.Title,
+            item.HoverText ?? item.SummaryText);
     }
 
     public bool NeedEnrichment(ContentItem item)

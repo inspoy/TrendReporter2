@@ -1,8 +1,11 @@
+using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
 using TrendReporter2.Core.Configuration;
+using TrendReporter2.Core.Content;
+using TrendReporter2.Core.Sources;
 
 namespace TrendReporter2.Core.Events;
 
@@ -18,18 +21,22 @@ public sealed class EventScoringService : IEventScoringService
     private readonly IJudgeLlmClient _judgeLlmClient;
     private readonly IEnumerable<IPusher> _pushers;
     private readonly ILogger _logger;
+    private readonly IReadOnlyDictionary<string, double> _sourceWeights;
 
     public EventScoringService(
         AppConfig config,
         IEventRepository repository,
         IJudgeLlmClient judgeLlmClient,
         IEnumerable<IPusher> pushers,
+        ISourceRegistry sourceRegistry,
         ILoggerFactory loggerFactory)
     {
         _config = config;
         _repository = repository;
         _judgeLlmClient = judgeLlmClient;
         _pushers = pushers;
+        _sourceWeights = sourceRegistry.GetSources()
+            .ToDictionary(source => source.Id, source => source.Weight, StringComparer.OrdinalIgnoreCase);
         _logger = loggerFactory.CreateLogger("EventScoring");
     }
 
@@ -140,10 +147,21 @@ public sealed class EventScoringService : IEventScoringService
         DateTimeOffset now)
     {
         var snapshots = input.Evidence.Select(evidence => evidence.Snapshot).ToList();
-        var uniqueSourceCount = snapshots.Select(snapshot => snapshot.Source).Distinct(StringComparer.OrdinalIgnoreCase).Count();
-        var avgRank = snapshots.Count == 0 ? 0 : snapshots.Average(snapshot => snapshot.Rank);
-        var avgNormalizedRank = snapshots.Count == 0 ? 0 : snapshots.Average(snapshot => snapshot.NormalizedRankScore);
-        var heatValue = snapshots.Sum(snapshot => snapshot.NormalizedRankScore);
+        var pushableSnapshots = snapshots.Where(snapshot => !IsTopicSnapshot(snapshot)).ToList();
+        var uniqueSourceCount = pushableSnapshots.Select(snapshot => snapshot.Source).Distinct(StringComparer.OrdinalIgnoreCase).Count();
+        var rankedSnapshots = pushableSnapshots.Where(IsRankedSnapshot).ToList();
+        var flashSnapshots = pushableSnapshots.Where(IsFlashSnapshot).ToList();
+        var rankedSourceCount = rankedSnapshots.Select(snapshot => snapshot.Source).Distinct(StringComparer.OrdinalIgnoreCase).Count();
+        var flashSourceCount = flashSnapshots.Select(snapshot => snapshot.Source).Distinct(StringComparer.OrdinalIgnoreCase).Count();
+        var avgRank = rankedSnapshots.Count == 0 ? 0 : rankedSnapshots.Average(snapshot => snapshot.Rank!.Value);
+        var avgNormalizedRank = rankedSnapshots.Count == 0 ? 0 : rankedSnapshots.Average(snapshot => snapshot.NormalizedRankScore!.Value);
+        var freshnessScore = flashSnapshots.Count == 0 ? 0 : flashSnapshots.Average(snapshot => Clamp01(snapshot.FreshnessScore));
+        var flashRepeatScore = flashSnapshots.Count <= 1 ? 0 : Clamp01((double)(flashSnapshots.Count - 1) / Math.Max(1, _config.Analysis.Event.SourceCount - 1));
+        var flashCoverageScore = Clamp01((double)flashSourceCount / Math.Max(1, _config.Analysis.Event.SourceCount));
+        var flashScore = flashSnapshots.Count == 0 ? 0 : Clamp01(0.55 * freshnessScore + 0.30 * flashCoverageScore + 0.15 * flashRepeatScore);
+        var rankedHeat = rankedSnapshots.Sum(snapshot => snapshot.NormalizedRankScore!.Value);
+        var flashHeat = flashSnapshots.Sum(snapshot => Clamp01(snapshot.FreshnessScore));
+        var heatValue = rankedHeat + flashHeat;
         var heatSeries = priorSnapshots.Select(snapshot => snapshot.HeatValue).Append(heatValue).ToList();
         var smoothedHeat = CalculateEwma(heatSeries);
         var trendScore = CalculateTrendScore(heatSeries);
@@ -155,10 +173,14 @@ public sealed class EventScoringService : IEventScoringService
             CalculatedAt = now,
             CoverageScore = Clamp01((double)uniqueSourceCount / Math.Max(1, _config.Analysis.Event.SourceCount)),
             RankScore = Clamp01(avgNormalizedRank),
+            FlashScore = flashScore,
+            FreshnessScore = freshnessScore,
             TrendScore = trendScore,
             PersistenceScore = Clamp01((now - input.Event.FirstSeenAt).TotalHours / Math.Max(1, _config.Analysis.HistoryHours)),
             ReactivationBonus = reactivated ? ReactivationBonusValue : 0,
             UniqueSourceCount = uniqueSourceCount,
+            RankedSourceCount = rankedSourceCount,
+            FlashSourceCount = flashSourceCount,
             AvgRank = avgRank,
             AvgNormalizedRank = avgNormalizedRank,
             HeatValue = heatValue,
@@ -166,10 +188,12 @@ public sealed class EventScoringService : IEventScoringService
             TrendEvidenceCount = heatSeries.Count
         };
 
-        if (uniqueSourceCount >= _config.Analysis.Event.SourceCount && avgNormalizedRank >= _config.Analysis.Event.NormalizedRankThreshold)
+        if (rankedSourceCount >= _config.Analysis.Event.SourceCount && avgNormalizedRank >= _config.Analysis.Event.NormalizedRankThreshold)
         {
             score.TriggerReasons.Add(TriggerReasons.CoverageRank);
         }
+
+        AddFlashTriggerReasons(score, flashSnapshots, reactivated);
 
         if (HasRisingTrend(score, heatSeries.Sum()))
         {
@@ -189,12 +213,56 @@ public sealed class EventScoringService : IEventScoringService
         => !eventAggregate.IsBlacklisted &&
             (score.TriggerReasons.Contains(TriggerReasons.CoverageRank) ||
              score.TriggerReasons.Contains(TriggerReasons.RisingTrend) ||
+             HasFlashTriggerReason(score) ||
              score.TriggerReasons.Contains(TriggerReasons.JudgeHighImportance) ||
              IsReactivated(eventAggregate, runStartedAt, now));
 
     private bool IsNearEligibility(EventScore score)
         => score.UniqueSourceCount >= Math.Max(1, _config.Analysis.Event.SourceCount - 1) ||
-            score.HeatValue >= _config.Analysis.Event.MinTrendHeat;
+            score.HeatValue >= _config.Analysis.Event.MinTrendHeat ||
+            score.FlashScore >= _config.Analysis.Event.NormalizedRankThreshold;
+
+    private void AddFlashTriggerReasons(EventScore score, IReadOnlyList<ContentSnapshot> flashSnapshots, bool reactivated)
+    {
+        if (score.FlashScore < _config.Analysis.Event.NormalizedRankThreshold)
+        {
+            return;
+        }
+
+        if (score.FlashSourceCount >= _config.Analysis.Event.SourceCount)
+        {
+            score.TriggerReasons.Add(TriggerReasons.FlashMultiSource);
+        }
+
+        if (flashSnapshots.Count >= _config.Analysis.Event.SourceCount)
+        {
+            score.TriggerReasons.Add(TriggerReasons.FlashRepeated);
+        }
+
+        if (reactivated && score.FlashSourceCount > 0)
+        {
+            score.TriggerReasons.Add(TriggerReasons.FlashFollowUp);
+        }
+
+        if (flashSnapshots.Any(snapshot => HasTrustedWeight(snapshot)))
+        {
+            score.TriggerReasons.Add(TriggerReasons.FlashTrustedSource);
+        }
+    }
+
+    private bool HasTrustedWeight(ContentSnapshot snapshot)
+    {
+        var sourceId = snapshot.SourceId ?? snapshot.Source;
+        return !string.IsNullOrWhiteSpace(sourceId) &&
+            _sourceWeights.TryGetValue(sourceId, out var weight) &&
+            weight > 1.0;
+    }
+
+    private static bool HasFlashTriggerReason(EventScore score)
+        => score.TriggerReasons.Contains(TriggerReasons.FlashMultiSource) ||
+            score.TriggerReasons.Contains(TriggerReasons.FlashRepeated) ||
+            score.TriggerReasons.Contains(TriggerReasons.FlashFollowUp) ||
+            score.TriggerReasons.Contains(TriggerReasons.FlashTrustedSource);
 
     private void ApplyJudge(EventScore score, JudgeResult judge)
     {
@@ -320,7 +388,7 @@ public sealed class EventScoringService : IEventScoringService
 
         if (eventAggregate.PushCount == 0 || eventAggregate.LastPushedAt is null)
         {
-            if (score.UniqueSourceCount < _config.Analysis.Event.SourceCount)
+            if (score.UniqueSourceCount < _config.Analysis.Event.SourceCount && !HasFlashTriggerReason(score))
             {
                 dontPushReason = $"信源数量不足({score.UniqueSourceCount})";
                 return false;
@@ -336,7 +404,7 @@ public sealed class EventScoringService : IEventScoringService
             return true;
         }
 
-        if (eventAggregate.LastPushRankScore is null || score.RankScore - eventAggregate.LastPushRankScore.Value >= _config.Analysis.RepeatPush.RankScoreImproveThreshold)
+        if (score.RankedSourceCount > 0 && (eventAggregate.LastPushRankScore is null || score.RankScore - eventAggregate.LastPushRankScore.Value >= _config.Analysis.RepeatPush.RankScoreImproveThreshold))
         {
             score.TriggerReasons.Add(TriggerReasons.RankImprovement);
             return true;
@@ -425,7 +493,7 @@ public sealed class EventScoringService : IEventScoringService
 
     private PushMessage BuildPushMessage(string runId, RunEventScoringInput input, EventScore score)
     {
-        var reason = score.TriggerReasons.LastOrDefault() ?? score.TriggerReasons.FirstOrDefault() ?? "符合条件";
+        var reason = SelectPushReason(score);
         var link = input.Evidence
             .Select(evidence => evidence.ContentItem.MobileUrl ?? evidence.ContentItem.Url)
             .FirstOrDefault(url => !string.IsNullOrWhiteSpace(url)) ?? string.Empty;
@@ -459,6 +527,17 @@ public sealed class EventScoringService : IEventScoringService
         => eventAggregate.FirstSeenAt < runStartedAt &&
             eventAggregate.LastActivatedAt >= runStartedAt &&
             eventAggregate.LastActivatedAt <= now;
+
+    private static bool IsRankedSnapshot(TrendReporter2.Core.Content.ContentSnapshot snapshot)
+        => string.Equals(snapshot.ContentKind, ContentKind.RankedNews, StringComparison.OrdinalIgnoreCase) &&
+            snapshot.Rank is not null &&
+            snapshot.NormalizedRankScore is not null;
+
+    private static bool IsFlashSnapshot(TrendReporter2.Core.Content.ContentSnapshot snapshot)
+        => string.Equals(snapshot.ContentKind, ContentKind.FlashFeed, StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsTopicSnapshot(TrendReporter2.Core.Content.ContentSnapshot snapshot)
+        => string.Equals(snapshot.ContentKind, ContentKind.Topic, StringComparison.OrdinalIgnoreCase);
 
     private static double CalculateTrendScore(IReadOnlyList<double> heatSeries)
     {
@@ -503,7 +582,9 @@ public sealed class EventScoringService : IEventScoringService
             0.25 * score.RankScore +
             0.20 * score.TrendScore +
             0.10 * score.PersistenceScore +
-            0.10 * score.LlmBoostScore) + score.ReactivationBonus;
+            0.10 * score.LlmBoostScore) +
+            15 * score.FlashScore +
+            score.ReactivationBonus;
 
     private static EventScoreSnapshot ToSnapshot(EventScore score)
         => new()
@@ -514,12 +595,16 @@ public sealed class EventScoringService : IEventScoringService
             CalculatedAt = score.CalculatedAt,
             CoverageScore = score.CoverageScore,
             RankScore = score.RankScore,
+            FlashScore = score.FlashScore,
+            FreshnessScore = score.FreshnessScore,
             TrendScore = score.TrendScore,
             PersistenceScore = score.PersistenceScore,
             LlmBoostScore = score.LlmBoostScore,
             ReactivationBonus = score.ReactivationBonus,
             TotalScore = score.TotalScore,
             UniqueSourceCount = score.UniqueSourceCount,
+            RankedSourceCount = score.RankedSourceCount,
+            FlashSourceCount = score.FlashSourceCount,
             AvgRank = score.AvgRank,
             AvgNormalizedRank = score.AvgNormalizedRank,
             HeatValue = score.HeatValue,
@@ -533,6 +618,26 @@ public sealed class EventScoringService : IEventScoringService
     {
         var hash = SHA256.HashData(Encoding.UTF8.GetBytes(dedupKey));
         return $"pl:{Convert.ToHexString(hash)[..24].ToLowerInvariant()}";
+    }
+
+    private static string SelectPushReason(EventScore score)
+    {
+        var priority = new[]
+        {
+            TriggerReasons.FlashMultiSource,
+            TriggerReasons.FlashRepeated,
+            TriggerReasons.FlashFollowUp,
+            TriggerReasons.FlashTrustedSource,
+            TriggerReasons.CoverageRank,
+            TriggerReasons.RisingTrend,
+            TriggerReasons.JudgeHighImportance,
+            TriggerReasons.Reactivation,
+            TriggerReasons.SourceIncrease,
+            TriggerReasons.RankImprovement,
+            TriggerReasons.ScoreImprovement,
+            TriggerReasons.FirstPush
+        };
+        return priority.FirstOrDefault(score.TriggerReasons.Contains) ?? score.TriggerReasons.LastOrDefault() ?? "符合条件";
     }
 
     private static string FormatReason(string reason)

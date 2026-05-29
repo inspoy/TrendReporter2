@@ -14,6 +14,10 @@ public class EventScore
 
     public double RankScore { get; set; }
 
+    public double FlashScore { get; set; }
+
+    public double FreshnessScore { get; set; }
+
     public double TrendScore { get; set; }
 
     public double PersistenceScore { get; set; }
@@ -25,6 +29,10 @@ public class EventScore
     public double TotalScore { get; set; }
 
     public int UniqueSourceCount { get; set; }
+
+    public int RankedSourceCount { get; set; }
+
+    public int FlashSourceCount { get; set; }
 
     public double AvgRank { get; set; }
 
@@ -69,6 +77,10 @@ public static class TriggerReasons
     public const string SourceIncrease = "source_increase";
     public const string RankImprovement = "rank_improvement";
     public const string ScoreImprovement = "score_improvement";
+    public const string FlashMultiSource = "flash_multi_source";
+    public const string FlashRepeated = "flash_repeated";
+    public const string FlashFollowUp = "flash_follow_up";
+    public const string FlashTrustedSource = "flash_trusted_source";
     public const string JudgeHighImportance = "judge_high_importance";
 }
 

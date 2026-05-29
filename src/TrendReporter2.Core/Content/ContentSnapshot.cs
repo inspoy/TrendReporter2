@@ -12,13 +12,19 @@ public sealed class ContentSnapshot
 
     public string Source { get; set; } = string.Empty;
 
+    public string? SourceId { get; set; }
+
     public string Category { get; set; } = string.Empty;
+
+    public string ContentKind { get; set; } = "ranked_news";
 
     public int VisualOrder { get; set; }
 
-    public int Rank { get; set; }
+    public int? Rank { get; set; }
 
-    public int SourceListSize { get; set; }
+    public int? SourceListSize { get; set; }
 
-    public double NormalizedRankScore { get; set; }
+    public double? NormalizedRankScore { get; set; }
+
+    public double FreshnessScore { get; set; }
 }
