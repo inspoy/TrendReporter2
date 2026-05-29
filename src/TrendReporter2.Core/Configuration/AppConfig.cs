@@ -48,6 +48,8 @@ public sealed class SourceItemConfig
 
     public string ExternalId { get; init; } = string.Empty;
 
+    public string Param { get; init; } = string.Empty;
+
     public string Category { get; init; } = string.Empty;
 
     public string DisplayName { get; init; } = string.Empty;

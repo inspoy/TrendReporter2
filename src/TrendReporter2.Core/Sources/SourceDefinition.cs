@@ -8,4 +8,5 @@ public sealed record SourceDefinition(
     string DisplayName,
     string ContentKind,
     bool Enabled,
-    double Weight);
+    double Weight,
+    string Param = "");

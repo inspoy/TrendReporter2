@@ -28,7 +28,7 @@ public sealed class DailyHotApiClient : IContentSourceClient
         SourceDefinition source,
         CancellationToken cancellationToken)
     {
-        var requestUri = BuildRequestUri(source.ExternalId);
+        var requestUri = BuildRequestUri(source.ExternalId, source.Param);
         using var response = await _httpClient.GetAsync(requestUri, cancellationToken);
         var responseBody = await response.Content.ReadAsStringAsync(cancellationToken);
 
@@ -102,10 +102,16 @@ public sealed class DailyHotApiClient : IContentSourceClient
         return result;
     }
 
-    private Uri BuildRequestUri(string externalId)
+    private Uri BuildRequestUri(string externalId, string param)
     {
         var baseUrl = _config.Sources.DailyHotApi.BaseUrl.TrimEnd('/');
-        return new Uri($"{baseUrl}/{Uri.EscapeDataString(externalId)}");
+        var path = $"{baseUrl}/{Uri.EscapeDataString(externalId)}";
+        if (!string.IsNullOrWhiteSpace(param))
+        {
+            path += $"?{param}";
+        }
+
+        return new Uri(path);
     }
 
     private static int? ParseCode(JToken? token)

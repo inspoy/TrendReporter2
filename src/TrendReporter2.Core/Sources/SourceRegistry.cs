@@ -55,7 +55,8 @@ public sealed class SourceRegistry : ISourceRegistry
                 item.DisplayName,
                 item.ContentKind,
                 item.Enabled,
-                item.Weight));
+                item.Weight,
+                item.Param));
         }
     }
 }
