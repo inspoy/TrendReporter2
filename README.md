@@ -86,7 +86,7 @@ cp config.example.yaml config.yaml
 - `database.connectionString`：PostgreSQL 连接串，占位值仅用于本地示例。
 - `database.migrateOnStartup`：是否在启动时执行迁移，示例中显式开启。
 - `enrichment.web_extract_url`：网页抽取服务地址；为空时增强客户端不可用。
-- `llm.cluster`：事件归并模型配置；为空时会跳过 LLM 归并并创建新事件。
+- `llm.cluster`、`llm.judge`、`llm.tagging`：事件归并、重要性判断和缺失 tag 补全模型配置；为空时相关 LLM 能力会降级。
 - `pushers`：推送通道配置，后续推送功能会使用。
 - `system.timeZone`：调度时区，默认 `Asia/Shanghai`。
 
@@ -159,7 +159,7 @@ python newsnow_fetch_test.py
 - `sources`：NewsNow 和 DailyHotApi 的服务地址与信源列表。
 - `database`：PostgreSQL 连接和启动迁移配置。
 - `analysis`：抓取间隔、分析窗口、事件归并阈值、重复推送阈值等。
-- `llm`：事件归并、重要性判断、摘要润色等模型配置。
+- `llm`：事件归并、重要性判断、缺失 tag 补全等模型配置。
 - `enrichment`：网页抽取服务配置、单轮增强预算、标题长度阈值和冷却时间。
 - `filters`：黑名单关键词。
 - `pushers`：推送通道配置，当前示例为 Unipush。

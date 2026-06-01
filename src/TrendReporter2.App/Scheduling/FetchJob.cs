@@ -10,6 +10,7 @@ using TrendReporter2.Core.Fetch;
 using TrendReporter2.Core.Jobs;
 using TrendReporter2.Core.Observability;
 using TrendReporter2.Core.Sources;
+using TrendReporter2.Core.Tags;
 
 namespace TrendReporter2.App.Scheduling;
 
@@ -22,7 +23,10 @@ public sealed class FetchJob : IFetchJob
     private readonly IContentIngestService _contentIngestService;
     private readonly IEnrichmentService _enrichmentService;
     private readonly IEventMatcher _eventMatcher;
+    private readonly IEventRepository _eventRepository;
     private readonly IEventScoringService _eventScoringService;
+    private readonly ITagRepository _tagRepository;
+    private readonly ITagLlmClient _tagLlmClient;
     private readonly IFetchRunRepository _fetchRunRepository;
     private readonly IRunTelemetryRecorder _telemetryRecorder;
     private readonly ILogger _logger;
@@ -35,7 +39,10 @@ public sealed class FetchJob : IFetchJob
         IContentIngestService contentIngestService,
         IEnrichmentService enrichmentService,
         IEventMatcher eventMatcher,
+        IEventRepository eventRepository,
         IEventScoringService eventScoringService,
+        ITagRepository tagRepository,
+        ITagLlmClient tagLlmClient,
         IFetchRunRepository fetchRunRepository,
         IRunTelemetryRecorder telemetryRecorder,
         ILoggerFactory loggerFactory)
@@ -49,7 +56,10 @@ public sealed class FetchJob : IFetchJob
         _contentIngestService = contentIngestService;
         _enrichmentService = enrichmentService;
         _eventMatcher = eventMatcher;
+        _eventRepository = eventRepository;
         _eventScoringService = eventScoringService;
+        _tagRepository = tagRepository;
+        _tagLlmClient = tagLlmClient;
         _fetchRunRepository = fetchRunRepository;
         _telemetryRecorder = telemetryRecorder;
         _logger = loggerFactory.CreateLogger("FetchJob");
@@ -119,6 +129,19 @@ public sealed class FetchJob : IFetchJob
             {
                 _logger.LogWarning(ex, "事件匹配失败，运行编号={RunId}；抓取流程将继续。", fetchRun.Id);
                 eventMatchResult = new EventMatchRunResult(0, 0, 0, 0, 0, 0);
+            }
+
+            try
+            {
+                await RecordStageAsync(
+                    fetchRun.Id,
+                    RunStageNames.Tagging,
+                    () => TagRunAsync(fetchRun.Id, DateTimeOffset.UtcNow, cancellationToken),
+                    cancellationToken);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                _logger.LogWarning(ex, "标签生成失败，运行编号={RunId}；抓取流程将继续。", fetchRun.Id);
             }
 
             EventScoringRunResult scoringResult;
@@ -203,6 +226,45 @@ public sealed class FetchJob : IFetchJob
         DateTimeOffset now,
         CancellationToken cancellationToken)
         => _eventMatcher.MatchRunAsync(runId, now, cancellationToken);
+
+    private async Task<int> TagRunAsync(string runId, DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        var taggedCount = 0;
+        var untaggedItems = await _tagRepository.LoadRunContentItemsWithoutTagsAsync(runId, cancellationToken);
+        if (_tagLlmClient.IsConfigured && untaggedItems.Count > 0)
+        {
+            using var semaphore = new SemaphoreSlim(_config.System.MaxParallelLlm);
+            var tasks = untaggedItems.Select(async item =>
+            {
+                await semaphore.WaitAsync(cancellationToken);
+                try
+                {
+                    var result = await _tagLlmClient.GenerateTagsAsync(new TagLlmRequest(runId, item), cancellationToken);
+                    if (result.Tags.Count == 0)
+                    {
+                        return;
+                    }
+
+                    await _tagRepository.UpsertContentTagsAsync(item.Id, result.Tags, now, cancellationToken);
+                    Interlocked.Increment(ref taggedCount);
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    _logger.LogWarning(ex, "内容标签 LLM 生成失败，内容条目编号={ContentItemId}；抓取流程将继续。", item.Id);
+                }
+                finally
+                {
+                    semaphore.Release();
+                }
+            });
+
+            await Task.WhenAll(tasks);
+        }
+
+        await _tagRepository.RefreshEventTagsForRunAsync(runId, now, cancellationToken);
+        _logger.LogInformation("标签阶段完成，运行编号={RunId}，待补标签内容={UntaggedCount}，LLM补标签内容={TaggedCount}。", runId, untaggedItems.Count, taggedCount);
+        return taggedCount;
+    }
 
     private Task<EventScoringRunResult> ScoreAndPushRunAsync(
         string runId,

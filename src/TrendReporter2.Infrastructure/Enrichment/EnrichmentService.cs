@@ -2,6 +2,7 @@ using Microsoft.Extensions.Logging;
 using TrendReporter2.Core.Configuration;
 using TrendReporter2.Core.Content;
 using TrendReporter2.Core.Enrichment;
+using TrendReporter2.Core.Tags;
 using TrendReporter2.Infrastructure.Persistence;
 
 namespace TrendReporter2.Infrastructure.Enrichment;
@@ -11,17 +12,23 @@ public sealed class EnrichmentService : IEnrichmentService
     private readonly AppConfig _config;
     private readonly PostgresContentRepository _contentRepository;
     private readonly IEnrichmentClient _enrichmentClient;
+    private readonly ITagService _tagService;
+    private readonly ITagRepository _tagRepository;
     private readonly ILogger _logger;
 
     public EnrichmentService(
         AppConfig config,
         PostgresContentRepository contentRepository,
         IEnrichmentClient enrichmentClient,
+        ITagService tagService,
+        ITagRepository tagRepository,
         ILoggerFactory loggerFactory)
     {
         _config = config;
         _contentRepository = contentRepository;
         _enrichmentClient = enrichmentClient;
+        _tagService = tagService;
+        _tagRepository = tagRepository;
         _logger = loggerFactory.CreateLogger("Enrichment");
     }
 
@@ -107,6 +114,7 @@ public sealed class EnrichmentService : IEnrichmentService
                     item.EnrichmentStatus = EnrichmentStatuses.Succeeded;
                     item.UpdatedAt = startedAt;
                     await SaveAsync(item, cancellationToken);
+                    await TrySaveTagsAsync(item, result.Tags, startedAt, cancellationToken);
                     Interlocked.Increment(ref succeeded);
                 }
                 catch (Exception ex) when (ex is not OperationCanceledException)
@@ -174,6 +182,27 @@ public sealed class EnrichmentService : IEnrichmentService
     {
         await _contentRepository.SaveAsync(item, cancellationToken);
     }
+
+    private Task SaveTagsAsync(ContentItem item, IReadOnlyList<string> webExtractTags, DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        var tags = _tagService.FromWebExtractTags(webExtractTags);
+        return tags.Count == 0
+            ? Task.CompletedTask
+            : _tagRepository.UpsertContentTagsAsync(item.Id, tags, now, cancellationToken);
+    }
+
+    private async Task TrySaveTagsAsync(ContentItem item, IReadOnlyList<string> webExtractTags, DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await SaveTagsAsync(item, webExtractTags, now, cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(ex, "内容 tag 写入失败，内容条目编号={ContentItemId}；富化结果已保留。", item.Id);
+        }
+    }
+
 
     private static (string Value, string Source) BuildPreferredSummary(ContentItem item, string? enrichmentSummary)
     {

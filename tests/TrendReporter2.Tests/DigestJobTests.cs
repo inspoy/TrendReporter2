@@ -3,6 +3,7 @@ using TrendReporter2.App.Scheduling;
 using TrendReporter2.Core.Configuration;
 using TrendReporter2.Core.Content;
 using TrendReporter2.Core.Events;
+using TrendReporter2.Core.Reports;
 
 namespace TrendReporter2.Tests;
 
@@ -46,6 +47,96 @@ public sealed class DigestJobTests
         Assert.Equal("digest:2026-05-05:08:20", eventRepository.PushLogs.Single().DedupKey);
         Assert.True(eventRepository.PushLogs.Single().Success);
         Assert.Equal("success", stateRepository.States.Single().Value.Value);
+    }
+
+    [Fact]
+    public async Task RunAsync_WhenReportEnabled_GeneratesSnapshotAndAddsReportLink()
+    {
+        var now = DateTimeOffset.Parse("2026-05-05T08:20:00Z");
+        var eventRepository = new DigestRepository([
+            new DigestCandidate(new EventAggregate
+            {
+                Id = "event-ai",
+                CanonicalTitle = "OpenAI starts GPT-4o voice rollout",
+                Summary = "OpenAI said GPT-4o voice access is expanding to paid users.",
+                LastSeenAt = now,
+                Status = EventStatus.Active
+            }, new EventScoreSnapshot
+            {
+                EventId = "event-ai",
+                TotalScore = 88,
+                HeatValue = 2.7,
+                UniqueSourceCount = 3,
+                AvgRank = 2,
+                CalculatedAt = now
+            })
+        ]);
+        var stateRepository = new StateRepository();
+        var pusher = new DigestPusher();
+        var reportQuery = new ReportQuery();
+        var reportRenderer = new ReportRenderer("/tmp/report.html", "https://reports.local/digest.html");
+        var reportSnapshots = new ReportSnapshotRepository();
+        var job = new DigestJob(
+            new AppConfig { Analysis = new AnalysisConfig { Push = new PushConfig { PushCount = 3 } }, Report = new ReportConfig { Enabled = true, IncludeInDigestPush = true } },
+            eventRepository,
+            stateRepository,
+            [pusher],
+            reportQuery,
+            reportRenderer,
+            reportSnapshots,
+            NullLoggerFactory.Instance);
+
+        await job.RunAsync(new DateOnly(2026, 5, 5), "08:20", now, CancellationToken.None);
+
+        Assert.Single(reportQuery.Payloads);
+        Assert.Single(reportSnapshots.Snapshots);
+        Assert.Contains("https://reports.local/digest.html", pusher.Messages.Single().Content);
+        Assert.Equal(1, reportSnapshots.Snapshots.Single().EventCount);
+    }
+
+    [Fact]
+    public async Task RunAsync_WhenPushLogAlreadyExists_DoesNotGenerateReport()
+    {
+        var now = DateTimeOffset.Parse("2026-05-05T08:20:00Z");
+        var eventRepository = new DigestRepository([
+            new DigestCandidate(new EventAggregate
+            {
+                Id = "event-ai",
+                CanonicalTitle = "OpenAI starts GPT-4o voice rollout",
+                Summary = "OpenAI said GPT-4o voice access is expanding to paid users.",
+                LastSeenAt = now,
+                Status = EventStatus.Active
+            }, new EventScoreSnapshot
+            {
+                EventId = "event-ai",
+                TotalScore = 88,
+                HeatValue = 2.7,
+                UniqueSourceCount = 3,
+                AvgRank = 2,
+                CalculatedAt = now
+            })
+        ]);
+        eventRepository.PushLogs.Add(new PushLog { Id = "existing", DedupKey = "digest:2026-05-05:08:20" });
+        var stateRepository = new StateRepository();
+        var pusher = new DigestPusher();
+        var reportQuery = new ReportQuery();
+        var reportSnapshots = new ReportSnapshotRepository();
+        var job = new DigestJob(
+            new AppConfig { Analysis = new AnalysisConfig { Push = new PushConfig { PushCount = 3 } }, Report = new ReportConfig { Enabled = true, IncludeInDigestPush = true } },
+            eventRepository,
+            stateRepository,
+            [pusher],
+            reportQuery,
+            new ReportRenderer("/tmp/report.html", "https://reports.local/digest.html"),
+            reportSnapshots,
+            NullLoggerFactory.Instance);
+
+        await job.RunAsync(new DateOnly(2026, 5, 5), "08:20", now, CancellationToken.None);
+
+        Assert.Empty(reportQuery.Payloads);
+        Assert.Empty(reportSnapshots.Snapshots);
+        Assert.Empty(pusher.Messages);
+        Assert.Equal("push_log_exists", stateRepository.States.Single().Value.Value);
     }
 
     private sealed class DigestRepository : IEventRepository
@@ -101,6 +192,51 @@ public sealed class DigestJobTests
         {
             Messages.Add(message);
             return Task.FromResult(new PushResult(true, "{\"ok\":true}", null));
+        }
+    }
+
+    private sealed class ReportQuery : IReportReadModelQuery
+    {
+        public List<ReportPayload> Payloads { get; } = [];
+
+        public Task<ReportPayload> BuildDigestReportAsync(DateTimeOffset windowStart, DateTimeOffset windowEnd, string slotTime, int limit, CancellationToken cancellationToken)
+        {
+            var payload = new ReportPayload
+            {
+                GeneratedAt = windowEnd,
+                WindowStart = windowStart,
+                WindowEnd = windowEnd,
+                SlotTime = slotTime,
+                Events = [new ReportEventItem { EventId = "event-ai", Title = "OpenAI", Summary = "摘要", TotalScore = 88, HeatValue = 2.7, UniqueSourceCount = 3 }]
+            };
+            Payloads.Add(payload);
+            return Task.FromResult(payload);
+        }
+    }
+
+    private sealed class ReportRenderer : IStaticHtmlReportRenderer
+    {
+        private readonly string _filePath;
+        private readonly string _publicUrl;
+
+        public ReportRenderer(string filePath, string publicUrl)
+        {
+            _filePath = filePath;
+            _publicUrl = publicUrl;
+        }
+
+        public Task<RenderedReport> RenderAsync(ReportPayload payload, CancellationToken cancellationToken)
+            => Task.FromResult(new RenderedReport(_filePath, _publicUrl));
+    }
+
+    private sealed class ReportSnapshotRepository : IReportSnapshotRepository
+    {
+        public List<ReportSnapshot> Snapshots { get; } = [];
+
+        public Task UpsertAsync(ReportSnapshot snapshot, CancellationToken cancellationToken)
+        {
+            Snapshots.Add(snapshot);
+            return Task.CompletedTask;
         }
     }
 }

@@ -66,11 +66,15 @@ llm:
     apiKey: "sk-xxx"
     model: "qwen3-max"
     maxTokens: 4096
-  writer: # 摘要补足
+  tagging: # 内容标签补充
     baseUrl: ""
     apiKey: ""
     model: "qwen2.5-7b-instruct"
-    maxTokens: 1024
+    maxTokens: 512
+    pricing:
+      cacheRead: 0
+      input: 0
+      output: 0
 
 enrichment:
   webExtractUrl: "" # 自定义的web页抓取服务
@@ -84,6 +88,12 @@ enrichment:
 
 filters:
   blacklistKeywords: []
+
+report:
+  enabled: true
+  outputDirectory: "./data/reports"
+  publicBaseUrl: ""
+  includeInDigestPush: false
 
 pushers:
   - type: unipush

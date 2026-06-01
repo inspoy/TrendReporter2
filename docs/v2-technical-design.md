@@ -165,7 +165,7 @@ V2 Core 应新增或扩展以下契约：
 | `Events` | `IEventRepository` | event、event item、score、push log、digest candidate、merge history |
 | `Events` | `IEventCandidateService` | 规则召回和向量召回的组合接口 |
 | `Events` | `ISecondaryMergeService` | 二次归并策略入口 |
-| `Tags` | `ITagService` | 对未富化、富化跳过、富化失败或 WebExtract 未返回 tags 的内容生成 fallback tag，并统一去重、关联 content/event tag |
+| `Tags` | `ITagService`、`ITagLlmClient` | 优先规范化 WebExtract tags；缺少 tags 的内容在 tagging 阶段由 `llm.tagging` 补全，并统一去重、关联 content/event tag |
 | `Reports` | `IReportReadModelQuery` | 查询静态报告所需的 read model |
 | `Observability` | `IRunTelemetryRecorder` | fetch run、stage、source、LLM usage 记录 |
 
@@ -174,7 +174,7 @@ V2 Core 应新增或扩展以下契约：
 - source capability 判断
 - ranked 和 flash scoring signal 的合并规则
 - 候选召回结果合并和排序
-- WebExtract tags 优先、`ITagService` fallback 的 tag 生成规则
+- WebExtract tags 优先、缺失 tags 由 `llm.tagging` 补全的 tag 生成规则
 - 二次归并硬过滤
 - 摘要候选过滤
 
@@ -193,7 +193,7 @@ V2 Infrastructure 应新增或替换以下实现：
 | `Sources` | `NewsNowClient` | 继续支持 `GET /api/s?id=source` |
 | `Sources` | `DailyHotApiClient` | 支持 ranked 和 flash 来源 |
 | `Enrichment` | `WebExtractClient` | 继续作为正文和摘要增强 adapter，`EnrichmentResult.Tags` 读取 WebExtract JSON 顶层 `insights` 字符串数组 |
-| `Llm` | `ClusterLlmClient`、`JudgeLlmClient`、`WriterLlmClient`、`EmbeddingClient` | 统一记录 usage |
+| `Llm` | `ClusterLlmClient`、`JudgeLlmClient`、`TagLlmClient`、`EmbeddingClient` | 统一记录 usage |
 | `Reports` | `StaticHtmlReportRenderer` | 从 read model 渲染 HTML 并写入本地目录 |
 
 ## 6. 配置设计
@@ -251,7 +251,7 @@ sources:
 
 ### 6.3 LLM 和 embedding 配置
 
-在现有 `llm.cluster`、`llm.judge`、`llm.writer` 基础上增加：
+在现有 `llm.cluster`、`llm.judge`、`llm.tagging` 基础上增加：
 
 ```yaml
 llm:
@@ -267,7 +267,7 @@ llm:
       output: 0
 ```
 
-重试次数固定为代码常量，例如 `3`，不放入配置。所有 cluster、judge、writer、tagging、embedding 调用都写入 `llm_usage`。
+重试次数固定为代码常量，例如 `3`，不放入配置。所有 cluster、judge、tagging、embedding 调用都写入 `llm_usage`。
 
 ### 6.4 Report 配置
 
@@ -420,7 +420,7 @@ src/TrendReporter2.Infrastructure/Persistence/Migrations/
 | `published_at` | `timestamptz` | nullable | 发布时间 |
 | `hover_text` | `text` | nullable | hover 或 source 摘要 |
 | `summary` | `text` | nullable | 当前摘要 |
-| `summary_source` | `text` | nullable | `title_only`、`hover_text`、`web_extract`、`writer` |
+| `summary_source` | `text` | nullable | `title_only`、`hover_text`、`web_extract` |
 | `need_enrichment` | `boolean` | not null | 是否需要富化 |
 | `enrichment_status` | `text` | not null | `none`、`pending`、`succeeded`、`failed`、`skipped` |
 | `enrichment_tried_at` | `timestamptz` | nullable | 最近尝试时间 |
@@ -575,9 +575,9 @@ ranked source 写入 `rank` 和 `normalized_rank_score`。flash source 不伪造
 V2M4 的 tag 获取路径：
 
 1. 内容执行 WebExtract 富化且成功时，直接使用 `WebExtractClient.EnrichmentResult.Tags` 作为该内容的初始 tags；`Tags` 来自 WebExtract JSON 顶层 `insights` 字段，类型为字符串数组，层级与 `title`、`summary` 同级。
-2. 内容未执行富化、富化被跳过、富化失败或 WebExtract 成功但未返回 tags 时，调用 `ITagService` 基于标题、hover text、summary、source category 和已有事件上下文生成 fallback tags。
+2. WebExtract 成功返回 tags 时优先保存；缺少 tags 的内容在事件匹配后进入 tagging 阶段，由配置的 `llm.tagging` 补充标签。
 3. `ITagService` 负责 tag 规范化、数量控制、去重和置信度归一化；它不重复调用已成功富化内容的 WebExtract tag 逻辑。
-4. `content_item_tag` 记录内容级 tag 来源，`event_tag` 由事件关联内容的 tags 和事件级规则汇总得到。
+4. `content_item_tag` 记录内容级 tag 来源，`event_tag` 由事件关联内容的 tags 汇总得到；历史 `rule` 来源仅用于兼容旧数据，不再生成新的规则 fallback tags。
 
 `tag`：
 
@@ -617,7 +617,7 @@ V2 初期 tag 只用于展示和搜索，不驱动 push subscription，不改变
 | --- | --- | --- |
 | `id` | `uuid` | usage id |
 | `run_id` | `uuid` | fetch run，可为空 |
-| `stage` | `text` | `cluster`、`judge`、`writer`、`tagging`、`embedding` |
+| `stage` | `text` | `cluster`、`judge`、`tagging`、`embedding` |
 | `model` | `text` | 模型名 |
 | `request_id` | `text` | 外部请求 id |
 | `content_item_id` | `uuid` | 相关内容，可为空 |
@@ -767,7 +767,7 @@ V2 `FetchJob` 建议流程：
 4. 有限并发抓取 source，写入 `fetch_run_source`。
 5. 将抓取结果传给 `IContentIngestService`。
 6. 对 `NeedEnrichment` 内容按预算调用 WebExtract；成功时保存 `EnrichmentResult.Tags`。
-7. 对未富化、富化跳过、富化失败或 WebExtract 未返回 tags 的内容调用 `ITagService` 生成 fallback tags。
+7. 对缺少 WebExtract tags 的内容在 tagging 阶段调用配置的标签 LLM；未配置或失败时保持无标签。
 8. 统一 upsert tag、content_item_tag，并在事件归并后维护 event_tag。
 9. 对内容执行规则召回和向量召回，合并候选。
 10. 调用 `EventMatcher` 新建、更新或复活事件。
@@ -852,7 +852,6 @@ TotalScore = 100 * (
 
 - `cluster`
 - `judge`
-- `writer`
 - `tagging`
 - `embedding`
 
@@ -1047,8 +1046,8 @@ secondary-merge-once [--config path]
 | 失败点 | 行为 |
 | --- | --- |
 | 单个 source 抓取失败 | 写 `fetch_run_source`，其他 source 继续 |
-| WebExtract 失败 | 标记富化失败，使用标题和 hover 继续，并调用 `ITagService` 生成 fallback tags |
-| WebExtract 成功但未返回 tags | 保留富化结果，调用 `ITagService` 补充 fallback tags |
+| WebExtract 失败 | 标记富化失败，使用标题和 hover 继续，后续 tagging 阶段可用 LLM 补充标签 |
+| WebExtract 成功但未返回 tags | 保留富化结果，后续 tagging 阶段可用 LLM 补充标签 |
 | Cluster LLM 失败 | 偏保守创建新事件或跳过归并 |
 | Judge LLM 失败 | `llm_boost_score = 0` |
 | Embedding 失败 | 不写向量，规则召回继续 |
@@ -1076,7 +1075,7 @@ secondary-merge-once [--config path]
 - ranked 和 flash scoring 分项
 - LLM usage 成本计算
 - WebExtract 顶层 `insights` 字符串数组映射为 `EnrichmentResult.Tags` 并入库去重
-- 未富化、富化跳过、富化失败时的 `ITagService` fallback tag
+- 未富化、富化跳过、富化失败或 WebExtract 无 tags 时的 `llm.tagging` 补全路径
 - vector recall 和规则召回合并
 - secondary merge hard filters
 - report read model 排序和过滤

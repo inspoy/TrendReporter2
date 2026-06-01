@@ -1,9 +1,11 @@
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using TrendReporter2.Core.Configuration;
 using TrendReporter2.Core.Events;
 using TrendReporter2.Core.Jobs;
+using TrendReporter2.Core.Reports;
 
 namespace TrendReporter2.App.Scheduling;
 
@@ -16,6 +18,9 @@ public sealed class DigestJob : IDigestJob
     private readonly AppConfig _config;
     private readonly IEventRepository _eventRepository;
     private readonly IAppStateRepository _stateRepository;
+    private readonly IReportReadModelQuery? _reportReadModelQuery;
+    private readonly IStaticHtmlReportRenderer? _reportRenderer;
+    private readonly IReportSnapshotRepository? _reportSnapshotRepository;
     private readonly IEnumerable<IPusher> _pushers;
     private readonly ILogger _logger;
 
@@ -25,10 +30,26 @@ public sealed class DigestJob : IDigestJob
         IAppStateRepository stateRepository,
         IEnumerable<IPusher> pushers,
         ILoggerFactory loggerFactory)
+        : this(config, eventRepository, stateRepository, pushers, null, null, null, loggerFactory)
+    {
+    }
+
+    public DigestJob(
+        AppConfig config,
+        IEventRepository eventRepository,
+        IAppStateRepository stateRepository,
+        IEnumerable<IPusher> pushers,
+        IReportReadModelQuery? reportReadModelQuery,
+        IStaticHtmlReportRenderer? reportRenderer,
+        IReportSnapshotRepository? reportSnapshotRepository,
+        ILoggerFactory loggerFactory)
     {
         _config = config;
         _eventRepository = eventRepository;
         _stateRepository = stateRepository;
+        _reportReadModelQuery = reportReadModelQuery;
+        _reportRenderer = reportRenderer;
+        _reportSnapshotRepository = reportSnapshotRepository;
         _pushers = pushers;
         _logger = loggerFactory.CreateLogger("DigestJob");
     }
@@ -38,6 +59,7 @@ public sealed class DigestJob : IDigestJob
         var dateText = localDate.ToString("yyyy-MM-dd");
         var dedupKey = $"digest:{dateText}:{slotTime}";
         var stateKey = $"digest:processed:{dateText}:{slotTime}";
+        var scheduledSlot = BuildScheduledSlot(localDate, slotTime, localNow);
         var now = DateTimeOffset.UtcNow;
         var existingState = await _stateRepository.GetAsync(stateKey, cancellationToken);
         if (existingState is not null)
@@ -68,7 +90,7 @@ public sealed class DigestJob : IDigestJob
 
         var message = candidates.Count == 0
             ? BuildSkippedMessage(dateText, slotTime, dedupKey)
-            : BuildDigestMessage(dateText, slotTime, candidates, dedupKey);
+            : BuildDigestMessage(dateText, slotTime, candidates, dedupKey, reportLink: null);
 
         var pushLog = new PushLog
         {
@@ -91,6 +113,16 @@ public sealed class DigestJob : IDigestJob
             _logger.LogInformation(DigestSkippedEventId, "跳过摘要推送，推送日志已存在。DedupKey={DedupKey}。", dedupKey);
             await MarkProcessedAsync(stateKey, "push_log_exists", now, cancellationToken);
             return;
+        }
+
+        if (candidates.Count > 0)
+        {
+            var reportLink = await TryGenerateReportAsync(since, now, slotTime, scheduledSlot, cancellationToken);
+            if (!string.IsNullOrWhiteSpace(reportLink))
+            {
+                message = BuildDigestMessage(dateText, slotTime, candidates, dedupKey, reportLink);
+                pushLog.Content = message.Content;
+            }
         }
 
         PushResult result;
@@ -133,6 +165,43 @@ public sealed class DigestJob : IDigestJob
         }, cancellationToken);
     }
 
+    private async Task<string?> TryGenerateReportAsync(
+        DateTimeOffset since,
+        DateTimeOffset now,
+        string slotTime,
+        DateTimeOffset scheduledSlot,
+        CancellationToken cancellationToken)
+    {
+        if (!_config.Report.Enabled || _reportReadModelQuery is null || _reportRenderer is null || _reportSnapshotRepository is null)
+        {
+            return null;
+        }
+
+        try
+        {
+            var payload = await _reportReadModelQuery.BuildDigestReportAsync(since, now, slotTime, Math.Max(1, _config.Analysis.Push.PushCount), cancellationToken);
+            var rendered = await _reportRenderer.RenderAsync(payload, cancellationToken);
+            var snapshot = new ReportSnapshot
+            {
+                Id = BuildReportSnapshotId(ReportTypes.DigestHtml, scheduledSlot),
+                ReportType = ReportTypes.DigestHtml,
+                SlotTime = scheduledSlot,
+                GeneratedAt = now,
+                FilePath = rendered.FilePath,
+                PublicUrl = rendered.PublicUrl,
+                EventCount = payload.Events.Count,
+                PayloadJson = JsonSerializer.Serialize(payload)
+            };
+            await _reportSnapshotRepository.UpsertAsync(snapshot, cancellationToken);
+            return _config.Report.IncludeInDigestPush ? rendered.PublicUrl : null;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(ex, "静态摘要报告生成失败；摘要推送将继续。时段={SlotTime}。", slotTime);
+            return null;
+        }
+    }
+
     private static PushMessage BuildSkippedMessage(string dateText, string slotTime, string dedupKey)
     {
         var content = $"{dateText} {slotTime} 摘要未发送：统计窗口内没有可推送的非黑名单事件。";
@@ -147,10 +216,15 @@ public sealed class DigestJob : IDigestJob
         };
     }
 
-    private static PushMessage BuildDigestMessage(string dateText, string slotTime, IReadOnlyList<DigestCandidate> candidates, string dedupKey)
+    private static PushMessage BuildDigestMessage(string dateText, string slotTime, IReadOnlyList<DigestCandidate> candidates, string dedupKey, string? reportLink)
     {
         var builder = new StringBuilder();
         builder.AppendLine($"{dateText} {slotTime} 舆情摘要，共 {candidates.Count} 个事件：");
+        if (!string.IsNullOrWhiteSpace(reportLink))
+        {
+            builder.AppendLine($"静态报告：{reportLink}");
+        }
+
         for (var i = 0; i < candidates.Count; i++)
         {
             var candidate = candidates[i];
@@ -226,5 +300,18 @@ public sealed class DigestJob : IDigestJob
     {
         var hash = SHA256.HashData(Encoding.UTF8.GetBytes(dedupKey));
         return $"pl:{Convert.ToHexString(hash)[..24].ToLowerInvariant()}";
+    }
+
+    private static DateTimeOffset BuildScheduledSlot(DateOnly localDate, string slotTime, DateTimeOffset localNow)
+    {
+        return TimeOnly.TryParseExact(slotTime, "HH:mm", out var time)
+            ? new DateTimeOffset(localDate.ToDateTime(time), localNow.Offset)
+            : localNow;
+    }
+
+    private static string BuildReportSnapshotId(string reportType, DateTimeOffset slotTime)
+    {
+        var hash = SHA256.HashData(Encoding.UTF8.GetBytes($"{reportType}|{slotTime.UtcDateTime:O}"));
+        return $"report:{reportType}:{Convert.ToHexString(hash)[..24].ToLowerInvariant()}";
     }
 }

@@ -24,7 +24,7 @@
     },
     "llm": {
       "$ref": "#/$defs/LlmConfig",
-      "description": "LLM 模型配置 — 事件归并、重要性判定、摘要补足"
+      "description": "LLM 模型配置 — 事件归并、重要性判定、缺失 tag 补全"
     },
     "enrichment": {
       "$ref": "#/$defs/EnrichmentConfig",
@@ -33,6 +33,10 @@
     "filters": {
       "$ref": "#/$defs/FilterConfig",
       "description": "内容过滤规则"
+    },
+    "report": {
+      "$ref": "#/$defs/ReportConfig",
+      "description": "静态报告生成配置"
     },
     "pushers": {
       "$ref": "#/$defs/PushersConfig",
@@ -50,6 +54,7 @@
     "llm",
     "enrichment",
     "filters",
+    "report",
     "system",
     "pushers"
   ],
@@ -364,15 +369,15 @@
           "$ref": "#/$defs/LlmEndpointConfig",
           "description": "重要性判定 LLM — 修正事件重要性评分与标签"
         },
-        "writer": {
+        "tagging": {
           "$ref": "#/$defs/LlmEndpointConfig",
-          "description": "摘要补足 LLM — 为标题信息不足的新闻生成摘要"
+          "description": "标签生成 LLM — 为缺少 WebExtract tags 的内容补充标签"
         }
       },
       "required": [
         "cluster",
         "judge",
-        "writer"
+        "tagging"
       ]
     },
     "LlmEndpointConfig": {
@@ -516,6 +521,38 @@
       },
       "required": [
         "blacklistKeywords"
+      ]
+    },
+    "ReportConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "是否生成静态 HTML 报告",
+          "default": false
+        },
+        "outputDirectory": {
+          "type": "string",
+          "description": "静态报告输出目录；启用 report 时不能为空",
+          "default": "./data/reports"
+        },
+        "publicBaseUrl": {
+          "type": "string",
+          "description": "报告公开访问基础 URL；当 includeInDigestPush 为 true 时必须是 http 或 https 绝对 URL",
+          "default": ""
+        },
+        "includeInDigestPush": {
+          "type": "boolean",
+          "description": "是否在摘要推送正文中包含静态报告链接",
+          "default": true
+        }
+      },
+      "required": [
+        "enabled",
+        "outputDirectory",
+        "publicBaseUrl",
+        "includeInDigestPush"
       ]
     },
     "PushersConfig": {

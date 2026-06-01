@@ -354,7 +354,7 @@ V2 初期 tag 只用于展示和检索；tag 订阅影响推送优先级属于�
 | --- | --- |
 | `id` | usage id |
 | `run_id` | run id |
-| `stage` | `cluster`、`judge`、`writer`、`tagging`、`embedding` |
+| `stage` | `cluster`、`judge`、`tagging`、`embedding` |
 | `model` | 模型名 |
 | `request_id` | 外部请求 id，可为空 |
 | `content_item_id` | 相关 content item，可为空 |
@@ -497,7 +497,7 @@ V2 可观测性分为四层：
 
 V2 的 LLM 优化包含：
 
-1. Cluster/Judge/Writer/Tagging/Embedding 各自记录 usage。
+1. Cluster/Judge/Tagging/Embedding 各自记录 usage。
 2. 固定最多 3 次重试。
 3. 解析失败、HTTP 失败、空响应都记录到 `llm_usage`。
 4. token usage 来自 OpenAI-compatible response 的 `usage` 字段；缺失时记录为空，不伪造。
@@ -676,7 +676,7 @@ Grafana 适合展示：
 ### Phase 4: Tag 与静态报告
 
 - 新增 tag/event_tag。
-- 规则或 LLM 生成 tag。
+- WebExtract 返回 tags 优先；缺失时由 LLM 生成 tag。
 - 生成静态 HTML 摘要。
 - 摘要推送可附带报告路径或链接。
 

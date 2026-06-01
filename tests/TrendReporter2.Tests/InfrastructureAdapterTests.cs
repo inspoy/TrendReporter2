@@ -7,6 +7,7 @@ using TrendReporter2.Core.Enrichment;
 using TrendReporter2.Core.Events;
 using TrendReporter2.Core.Observability;
 using TrendReporter2.Core.Sources;
+using TrendReporter2.Core.Tags;
 using TrendReporter2.Infrastructure.Enrichment;
 using TrendReporter2.Infrastructure.Llm;
 using TrendReporter2.Infrastructure.News;
@@ -164,6 +165,7 @@ public sealed class InfrastructureAdapterTests
         Assert.Equal("http://extract.local/fetch", successHandler.Requests.Single().RequestUri?.ToString());
         Assert.Equal("抽取标题", result.Title);
         Assert.Equal("第一段 第二段", result.Summary);
+        Assert.Equal(["第一段", "第二段"], result.Tags);
 
         var nonSuccessHandler = new TestHttpMessageHandler(_ => TestHttpMessageHandler.Json(HttpStatusCode.BadGateway, """
         { "success": true, "summary": "网关返回了可用正文", "title": "非 2xx 可用标题" }
@@ -280,6 +282,69 @@ public sealed class InfrastructureAdapterTests
         Assert.Equal(0.0017m, usage.EstimatedCost);
     }
 
+
+    [Fact]
+    public async Task TagLlmClient_ParsesTagsAndRecordsUsage()
+    {
+        var handler = new TestHttpMessageHandler(_ => TestHttpMessageHandler.Json(HttpStatusCode.OK, """
+        {
+          "id": "chatcmpl-tag-1",
+          "choices": [ { "message": { "content": "{\"tags\":[{\"name\":\"OpenAI\",\"displayName\":\"OpenAI\",\"category\":\"entity\",\"confidence\":0.95},{\"name\":\"监管 风险\",\"category\":\"bad\",\"confidence\":1.2}]}" } } ],
+          "usage": { "prompt_tokens": 200, "completion_tokens": 100, "prompt_tokens_details": { "cached_tokens": 50 } }
+        }
+        """));
+        var recorder = new TestTelemetryRecorder();
+        var client = new TagLlmClient(new HttpClient(handler), ConfigWithLlm(), new TagService(), NullLoggerFactory.Instance, recorder);
+        var item = ContentItem();
+        item.Title = "OpenAI 发布新模型引发监管风险讨论";
+        item.Summary = "多国监管机构关注 AI 风险。";
+        item.Category = "tech";
+
+        var result = await client.GenerateTagsAsync(new TagLlmRequest("run-1", item), CancellationToken.None);
+
+        Assert.Equal(2, result.Tags.Count);
+        Assert.Contains(result.Tags, tag => tag.Name == "openai" && tag.Category == TagCategories.Entity && tag.Source == TagSources.Llm);
+        Assert.Contains(result.Tags, tag => tag.Name == "监管-风险" && tag.Category == TagCategories.Topic && tag.Confidence == 1);
+        Assert.Equal("https://llm.local/v1/chat/completions", handler.Requests.Single().RequestUri?.ToString());
+        var usage = Assert.Single(recorder.LlmUsage);
+        Assert.Equal(LlmUsageStages.Tagging, usage.Stage);
+        Assert.Equal("tag-model", usage.Model);
+        Assert.Equal("run-1", usage.RunId);
+        Assert.Equal(item.Id, usage.ContentItemId);
+        Assert.Equal("chatcmpl-tag-1", usage.RequestId);
+        Assert.Equal(200, usage.InputTokens);
+        Assert.Equal(100, usage.OutputTokens);
+        Assert.Equal(50, usage.CacheReadTokens);
+        Assert.True(usage.Success);
+        Assert.Equal(0.00035m, usage.EstimatedCost);
+    }
+
+    [Fact]
+    public async Task TagLlmClient_UnconfiguredAndFailuresReturnNoTags()
+    {
+        var unconfiguredHandler = new TestHttpMessageHandler(_ => TestHttpMessageHandler.Json(HttpStatusCode.OK, "{}"));
+        var unconfigured = new TagLlmClient(new HttpClient(unconfiguredHandler), Config(), new TagService(), NullLoggerFactory.Instance);
+
+        var unconfiguredResult = await unconfigured.GenerateTagsAsync(new TagLlmRequest("run-1", ContentItem()), CancellationToken.None);
+
+        Assert.Empty(unconfiguredResult.Tags);
+        Assert.Empty(unconfiguredHandler.Requests);
+
+        var failureHandler = new TestHttpMessageHandler(_ => TestHttpMessageHandler.Json(HttpStatusCode.BadGateway, "bad gateway"));
+        var recorder = new TestTelemetryRecorder();
+        var failing = new TagLlmClient(new HttpClient(failureHandler), ConfigWithLlm(), new TagService(), NullLoggerFactory.Instance, recorder);
+
+        var failureResult = await failing.GenerateTagsAsync(new TagLlmRequest("run-1", ContentItem()), CancellationToken.None);
+
+        Assert.Empty(failureResult.Tags);
+        Assert.Equal(4, failureHandler.Requests.Count);
+        var usage = Assert.Single(recorder.LlmUsage);
+        Assert.Equal(LlmUsageStages.Tagging, usage.Stage);
+        Assert.False(usage.Success);
+        Assert.Equal("HTTP 502", usage.Error);
+        Assert.Equal(3, usage.RetryCount);
+    }
+
     [Fact]
     public async Task JudgeLlmClient_RecordsFinalFailureAfterRetries()
     {
@@ -346,6 +411,12 @@ public sealed class InfrastructureAdapterTests
                 {
                     BaseUrl = "https://llm.local",
                     Model = "judge-model",
+                    Pricing = new LLmPricingConfig { Input = 1, Output = 1, CacheRead = 1 }
+                },
+                Tagging = new LlmEndpointConfig
+                {
+                    BaseUrl = "https://llm.local",
+                    Model = "tag-model",
                     Pricing = new LLmPricingConfig { Input = 1, Output = 1, CacheRead = 1 }
                 }
             }

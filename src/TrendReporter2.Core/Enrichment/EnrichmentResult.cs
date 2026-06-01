@@ -8,6 +8,7 @@ public sealed class EnrichmentResult
 
     public string Url { get; init; } = string.Empty;
 
+    public IReadOnlyList<string> Tags { get; init; } = [];
+
     public string RawPayload { get; init; } = "{}";
 }
-

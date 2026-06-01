@@ -65,13 +65,13 @@ public static class RunStageNames
     public const string Score = "score";
     public const string Push = "push";
     public const string Report = "report";
+    public const string Tagging = "tagging";
 }
 
 public static class LlmUsageStages
 {
     public const string Cluster = "cluster";
     public const string Judge = "judge";
-    public const string Writer = "writer";
     public const string Tagging = "tagging";
     public const string Embedding = "embedding";
 }

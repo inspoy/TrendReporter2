@@ -89,7 +89,7 @@ public sealed class AppConfigValidatorTests
             {
                 Cluster = new LlmEndpointConfig { Pricing = new LLmPricingConfig { CacheRead = -1 } },
                 Judge = new LlmEndpointConfig { Pricing = new LLmPricingConfig { Input = -1 } },
-                Writer = new LlmEndpointConfig { Pricing = new LLmPricingConfig { Output = -1 } }
+                Tagging = new LlmEndpointConfig { Pricing = new LLmPricingConfig { Output = -1 } }
             },
             Enrichment = new EnrichmentConfig
             {
@@ -115,6 +115,8 @@ public sealed class AppConfigValidatorTests
         Assert.Contains("analysis.push.pushTime 包含无效时间 '25:61'，期望格式为 HH:mm。", exception.Errors);
         Assert.Contains("analysis.event.normalizedRankThreshold 必须在 0 到 1 之间。", exception.Errors);
         Assert.Contains("llm.cluster.pricing.cacheRead 必须是有限且非负的数字。", exception.Errors);
+        Assert.Contains("llm.judge.pricing.input 必须是有限且非负的数字。", exception.Errors);
+        Assert.Contains("llm.tagging.pricing.output 必须是有限且非负的数字。", exception.Errors);
         Assert.Contains("enrichment.maxRequestsPerRun 不能为负数。", exception.Errors);
         Assert.Contains("system.maxParallelFetch 必须大于 0。", exception.Errors);
         Assert.Contains("system.timeZone 'Invalid/Zone' 在当前系统上未找到。", exception.Errors);
@@ -261,7 +263,7 @@ public sealed class AppConfigValidatorTests
             {
                 Cluster = new LlmEndpointConfig { Pricing = new LLmPricingConfig { CacheRead = 0, Input = 0, Output = 0 } },
                 Judge = new LlmEndpointConfig { Pricing = new LLmPricingConfig { CacheRead = 0, Input = 0, Output = 0 } },
-                Writer = new LlmEndpointConfig { Pricing = new LLmPricingConfig { CacheRead = 0, Input = 0, Output = 0 } }
+                Tagging = new LlmEndpointConfig { Pricing = new LLmPricingConfig { CacheRead = 0, Input = 0, Output = 0 } }
             },
             Enrichment = new EnrichmentConfig
             {

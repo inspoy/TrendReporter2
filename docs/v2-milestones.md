@@ -225,7 +225,7 @@
 
 ### 目标
 
-补齐每轮运行的可观测性，记录 run/source/stage 统计，以及 cluster、judge、writer、tagging、embedding 的 LLM token、成本、耗时、重试和错误。
+补齐每轮运行的可观测性，记录 run/source/stage 统计，以及 cluster、judge、tagging、embedding 的 LLM token、成本、耗时、重试和错误。
 
 ### 交付物
 
@@ -278,8 +278,8 @@
 
 - Cluster LLM 调用记录 `stage = cluster`
 - Judge LLM 调用记录 `stage = judge`
-- Writer LLM 调用记录 `stage = writer`
-- 后续 tagging 和 embedding 使用同一 recorder
+- Tagging LLM 调用记录 `stage = tagging`
+- 后续 embedding 使用同一 LLM usage recorder
 - token 缺失时不伪造 usage
 
 #### `V2M2-T7` 实现成本估算
@@ -395,7 +395,7 @@
 
 ### 目标
 
-实现 tag/event_tag 的初始能力，并从 read model 生成静态 HTML 报告。tag 优先来自成功 WebExtract 富化返回的 `EnrichmentResult.Tags`；未富化、富化跳过或富化失败的内容再由新增 `ITagService` 生成 fallback tags。tag 初期只用于展示和搜索，不驱动 push subscription。
+实现 tag/event_tag 的初始能力，并从 read model 生成静态 HTML 报告。tag 优先来自成功 WebExtract 富化返回的 `EnrichmentResult.Tags`；缺少 WebExtract tags 的内容可由 `llm.tagging` 补充。tag 初期只用于展示和搜索，不驱动 push subscription。
 
 ### 交付物
 
@@ -403,7 +403,7 @@
 - `event_tag`
 - `content_item_tag`
 - WebExtract tags 接入
-- `ITagService` fallback tag 生成规则
+- WebExtract tags 优先、`llm.tagging` 缺失补全规则
 - report read model
 - 静态 HTML 报告文件
 - `report_snapshot`
@@ -434,20 +434,19 @@
 - 将 WebExtract tags 标记为 `TagSource = web_extract`
 - WebExtract 未返回 tags 时不视为富化失败，但需要 fallback 补全
 
-#### `V2M4-T4` 实现 `ITagService` fallback tag 生成
+#### `V2M4-T4` 实现 WebExtract tags 规范化
 
-- 从 source category 生成 domain tag
-- 从标题、hover text、summary 和事件关键词生成 topic tag
-- 从内容和事件上下文中提取 entity tag
-- 仅对未富化、富化跳过、富化失败或 WebExtract 未返回 tags 的内容执行 fallback
+- WebExtract 成功返回 tags 时直接使用这些 tags
+- 将 WebExtract tags 规范化为稳定名、展示名、分类、来源和置信度
 - 控制 tag 数量，避免低质量 tag 膨胀
+- 不再从 source category、标题、hover text、summary 或事件关键词生成规则 fallback tags
 
-#### `V2M4-T5` 可选接入 LLM tagging
+#### `V2M4-T5` 接入 LLM tagging 缺失补全
 
-- 在 `ITagService` 中对高价值事件或 fallback 置信度不足的内容调用 tagging LLM
+- 仅对未富化、富化跳过、富化失败或 WebExtract 未返回 tags 的内容调用 `llm.tagging`
 - 记录 `llm_usage.stage = tagging`
 - 返回 tag 名、分类、置信度
-- LLM 失败时保留 WebExtract tags 或规则 fallback tags
+- LLM 失败时保留 WebExtract tags 或保持无标签
 
 #### `V2M4-T6` 实现 tag 仓储
 
@@ -481,7 +480,7 @@
 #### `V2M4-T10` 集成 tag 写入到 fetch/enrich 流程
 
 - 富化成功时直接持久化 `EnrichmentResult.Tags`
-- 未富化、富化跳过、富化失败或未返回 tags 时调用 `ITagService`
+- 未富化、富化跳过、富化失败或未返回 tags 时在 tagging 阶段调用 `llm.tagging`
 - 写入 `content_item_tag`
 - 事件归并后汇总并写入 `event_tag`
 
@@ -495,8 +494,8 @@
 
 - WebExtract tags 可写入并展示
 - WebExtract 顶层 `insights` 字符串数组可映射为 `EnrichmentResult.Tags`
-- 未富化、富化跳过和富化失败内容会调用 `ITagService`
-- WebExtract 成功但未返回 tags 时会 fallback 补全
+- 未富化、富化跳过和富化失败内容在缺少 WebExtract tags 时会进入 `llm.tagging` 补全
+- WebExtract 成功但未返回 tags 时会进入 `llm.tagging` 补全；未配置或失败时保持无标签
 - read model 排序正确
 - 黑名单不出现在报告中
 - tag 展示正确
@@ -506,7 +505,7 @@
 
 - 每个高价值事件可以关联 tag
 - 成功富化的内容优先使用 WebExtract 返回的 tags
-- 未富化、富化跳过、富化失败或 WebExtract 未返回 tags 的内容会通过 `ITagService` 获得 fallback tags
+- 缺少 WebExtract tags 的内容会在 tagging 阶段尝试通过 LLM 获得标签；未配置或失败时保持无标签
 - 摘要报告可生成并用浏览器打开
 - 报告包含事件、评分、tag、相关新闻和原文链接
 - tag 不影响 V2 初期即时推送资格
@@ -841,7 +840,7 @@
 | `P2` | `V2M1-T2` content 仓储、`V2M1-T3` event 仓储、`V2M1-T4` app state 仓储 |
 | `P3` | `V2M2-T2` telemetry 契约、`V2M2-T6` LLM usage wrapper、`V2M2-T7` 成本估算 |
 | `P4` | `V2M3-T1` source 模型、`V2M3-T4` NewsNow 改造、`V2M3-T5` DailyHotApi adapter |
-| `P5` | `V2M4-T3` WebExtract tags、`V2M4-T4` ITagService fallback、`V2M4-T7` report read model、`V2M4-T9` HTML renderer |
+| `P5` | `V2M4-T3` WebExtract tags、`V2M4-T4` WebExtract tag 规范化、`V2M4-T5` LLM tagging 补全、`V2M4-T7` report read model、`V2M4-T9` HTML renderer |
 | `P6` | `V2M5-T3` EmbeddingClient、`V2M5-T4` embedding 仓储、`V2M5-T8` 召回合并 |
 | `P7` | `V2M6-T3` 相似事件对发现、`V2M6-T4` 硬过滤、`V2M6-T8` 二次归并测试 |
 | `P8` | `V2M8-T1` 单元测试、`V2M8-T3` 回归样本、`V2M8-T4` 运行文档 |
@@ -895,7 +894,7 @@ V2 可以认为“基本完成”，需要满足以下条件：
 - flash source 不依赖 rank 也能参与事件发现
 - ranked 和 flash scoring signal 分开记录
 - 每轮运行有 run/source/stage telemetry
-- cluster、judge、writer、tagging、embedding 的 LLM usage 可记录 token、成本、耗时、重试和错误
+- cluster、judge、tagging、embedding 的 LLM usage 可记录 token、成本、耗时、重试和错误
 - tag/event_tag 可用于展示和搜索
 - 静态 HTML 报告可从 read model 生成
 - pgvector recall 可增强候选召回，失败时规则召回继续工作

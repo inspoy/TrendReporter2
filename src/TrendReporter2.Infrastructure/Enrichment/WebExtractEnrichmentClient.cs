@@ -110,6 +110,7 @@ public sealed class WebExtractEnrichmentClient : IEnrichmentClient
             Summary = summary,
             Title = result.Title ?? item.Title,
             Url = result.Url ?? item.Url,
+            Tags = result.Tags,
             RawPayload = responseBody
         };
     }
@@ -137,12 +138,31 @@ public sealed class WebExtractEnrichmentClient : IEnrichmentClient
                 message,
                 ReadFirstString(root, "summary") ?? ReadInsights(root),
                 ReadFirstString(root, "title"),
-                ReadFirstString(root, "url"));
+                ReadFirstString(root, "url"),
+                ReadInsightTags(root));
         }
         catch (JsonException)
         {
-            return new WebExtractResult(true, null, responseBody, item.Title, item.Url);
+            return new WebExtractResult(true, null, responseBody, item.Title, item.Url, []);
         }
+    }
+
+    private static IReadOnlyList<string> ReadInsightTags(JObject root)
+    {
+        var insights = root["insights"] as JArray ?? root["data"]?["insights"] as JArray;
+        if (insights is null)
+        {
+            return [];
+        }
+
+        return insights
+            .OfType<JValue>()
+            .Select(value => value.Value as string)
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Select(value => value!.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Take(8)
+            .ToList();
     }
 
     private static string? ReadInsights(JObject root)
@@ -195,5 +215,5 @@ public sealed class WebExtractEnrichmentClient : IEnrichmentClient
     private static string Truncate(string value, int maxLength)
         => value.Length <= maxLength ? value : value[..maxLength];
 
-    private sealed record WebExtractResult(bool Success, string? Message, string? Summary, string? Title, string? Url);
+    private sealed record WebExtractResult(bool Success, string? Message, string? Summary, string? Title, string? Url, IReadOnlyList<string> Tags);
 }

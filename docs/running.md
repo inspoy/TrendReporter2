@@ -15,7 +15,7 @@
 - `database.connectionString`：PostgreSQL 连接串，占位值仅用于本地示例。
 - `database.migrateOnStartup`：是否在启动时执行迁移，示例中显式开启。
 - `enrichment.webExtractUrl`：网页抽取服务地址。配置 `https://extract.local` 时，程序会请求 `https://extract.local/fetch`。
-- `llm.cluster`、`llm.judge`、`llm.writer`：OpenAI 兼容模型配置。为空时相关 LLM 能力会降级。
+- `llm.cluster`、`llm.judge`、`llm.tagging`：OpenAI 兼容模型配置。为空时相关 LLM 能力会降级。
 - `pushers`：推送通道。当前实现包含 `unipush`，会发送 `cate/title/msg/link` JSON 并带 `Push-Key` 请求头。
 - `system.timeZone`：摘要调度使用的时区，默认 `Asia/Shanghai`。
 

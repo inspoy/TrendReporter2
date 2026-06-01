@@ -6,6 +6,7 @@ using TrendReporter2.Core.Enrichment;
 using TrendReporter2.Core.Events;
 using TrendReporter2.Core.Jobs;
 using TrendReporter2.Core.Sources;
+using TrendReporter2.Core.Tags;
 using TrendReporter2.App.Scheduling;
 using TrendReporter2.Infrastructure;
 using TrendReporter2.Infrastructure.Enrichment;
@@ -57,6 +58,7 @@ builder.Services.AddSingleton<IContentSourceClient>(static serviceProvider => se
 builder.Services.AddHttpClient<IEnrichmentClient, WebExtractEnrichmentClient>();
 builder.Services.AddHttpClient<IClusterLlmClient, ClusterLlmClient>();
 builder.Services.AddHttpClient<IJudgeLlmClient, JudgeLlmClient>();
+builder.Services.AddHttpClient<ITagLlmClient, TagLlmClient>();
 builder.Services.AddHttpClient<IPusher, UnipushPusher>();
 builder.Services.AddSingleton<IFetchJob, FetchJob>();
 builder.Services.AddSingleton<IDigestJob, DigestJob>();

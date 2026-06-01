@@ -14,6 +14,8 @@ public sealed class AppConfig
 
     public FilterConfig Filters { get; init; } = new();
 
+    public ReportConfig Report { get; init; } = new();
+
     public List<PusherConfig> Pushers { get; init; } = [];
 
     public SystemConfig System { get; init; } = new();
@@ -119,7 +121,7 @@ public sealed class LlmConfig
 
     public LlmEndpointConfig Judge { get; init; } = new();
 
-    public LlmEndpointConfig Writer { get; init; } = new();
+    public LlmEndpointConfig Tagging { get; init; } = new();
 }
 
 public sealed class LlmEndpointConfig
@@ -166,6 +168,17 @@ public sealed class EnrichmentConfig
 public sealed class FilterConfig
 {
     public List<string> BlacklistKeywords { get; init; } = [];
+}
+
+public sealed class ReportConfig
+{
+    public bool Enabled { get; init; }
+
+    public string OutputDirectory { get; init; } = "./data/reports";
+
+    public string PublicBaseUrl { get; init; } = string.Empty;
+
+    public bool IncludeInDigestPush { get; init; } = true;
 }
 
 public sealed class PusherConfig

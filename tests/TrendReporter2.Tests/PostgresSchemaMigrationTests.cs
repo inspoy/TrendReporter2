@@ -83,6 +83,24 @@ public sealed class PostgresSchemaMigrationTests
         "ix_event_score_snapshot_freshness_score"
     ];
 
+    private static readonly string[] TagAndReportTables =
+    [
+        "tag",
+        "content_item_tag",
+        "event_tag",
+        "report_snapshot"
+    ];
+
+    private static readonly string[] TagAndReportIndexes =
+    [
+        "ix_tag_category",
+        "ix_content_item_tag_tag_id",
+        "ix_event_tag_tag_id",
+        "ix_report_snapshot_slot_time",
+        "ix_report_snapshot_generated_at",
+        "ix_report_snapshot_report_type"
+    ];
+
     [Fact]
     public void InitMigration_DefinesRequiredExtensionTablesAndRunnerCompatibility()
     {
@@ -207,6 +225,30 @@ public sealed class PostgresSchemaMigrationTests
     }
 
     [Fact]
+    public void TagsAndReportsMigration_DefinesTagMappingsAndReportSnapshots()
+    {
+        var normalized = NormalizeSql(File.ReadAllText(Path.Combine(InitMigrationDirectory(), "0006_tags_and_reports.sql")));
+
+        foreach (var table in TagAndReportTables)
+        {
+            Assert.Contains($"create table if not exists {table}", normalized);
+        }
+
+        Assert.Contains("constraint uq_tag_name unique (name)", normalized);
+        Assert.Contains("constraint pk_content_item_tag primary key (content_item_id, tag_id)", normalized);
+        Assert.Contains("constraint pk_event_tag primary key (event_id, tag_id)", normalized);
+        Assert.Contains("payload_json jsonb not null default '{}'::jsonb", TableBody(normalized, "report_snapshot"));
+        Assert.Contains("constraint ck_tag_category check (category in ('topic', 'entity', 'domain', 'risk'))", normalized);
+        Assert.Contains("constraint ck_content_item_tag_source check (source in ('web_extract', 'rule', 'llm', 'manual'))", normalized);
+
+        foreach (var index in TagAndReportIndexes)
+        {
+            Assert.Contains($"create index if not exists {index}", normalized);
+        }
+    }
+
+
+    [Fact]
     [Trait("Category", "PostgresIntegration")]
     public async Task RunAsync_WhenPostgresIsAvailable_AppliesRealInitSchema()
     {
@@ -232,7 +274,7 @@ public sealed class PostgresSchemaMigrationTests
 
             var result = await runner.RunAsync(CancellationToken.None);
 
-            Assert.Equal(new SqlMigrationRunResult(5, 0), result);
+            Assert.Equal(new SqlMigrationRunResult(6, 0), result);
             await using var verifyConnection = await dataSource.OpenConnectionAsync();
             var tables = (await verifyConnection.QueryAsync<string>("""
             select table_name
@@ -257,6 +299,11 @@ public sealed class PostgresSchemaMigrationTests
                 Assert.Contains(table, tables);
             }
 
+            foreach (var table in TagAndReportTables)
+            {
+                Assert.Contains(table, tables);
+            }
+
             var contentItemColumns = (await verifyConnection.QueryAsync<string>("""
             select column_name
             from information_schema.columns
@@ -276,6 +323,9 @@ public sealed class PostgresSchemaMigrationTests
             Assert.Contains("ck_source_content_kind", constraintNames);
             Assert.Contains("ck_content_item_content_kind", constraintNames);
             Assert.Contains("ck_content_snapshot_content_kind", constraintNames);
+            Assert.Contains("uq_tag_name", constraintNames);
+            Assert.Contains("pk_content_item_tag", constraintNames);
+            Assert.Contains("pk_event_tag", constraintNames);
 
             var migrationName = await verifyConnection.QuerySingleAsync<string>("""
             select name

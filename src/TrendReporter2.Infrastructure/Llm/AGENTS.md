@@ -9,7 +9,7 @@ OpenAI-compatible chat-completions adapters for event clustering and importance 
 | Cluster matching | `ClusterLlmClient.cs` | Determines whether a content item belongs to recalled candidates. |
 | Judge/scoring adjustment | `JudgeLlmClient.cs` | Adjusts event importance and labels. |
 | Contracts/models | `../../TrendReporter2.Core/Events/EventContracts.cs` | `IClusterLlmClient`, `IJudgeLlmClient`, decisions. |
-| Config | `../../TrendReporter2.Core/Configuration/AppConfig.cs` | `llm.cluster`, `llm.judge`, `llm.writer`. |
+| Config | `../../TrendReporter2.Core/Configuration/AppConfig.cs` | `llm.cluster`, `llm.judge`, `llm.tagging`. |
 | Adapter tests | `../../../tests/TrendReporter2.Tests/InfrastructureAdapterTests.cs` | Fake HTTP handler coverage for LLM adapter behavior. |
 
 ## CONVENTIONS
