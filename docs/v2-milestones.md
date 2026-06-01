@@ -395,13 +395,15 @@
 
 ### 目标
 
-实现 tag/event_tag 的初始能力，并从 read model 生成静态 HTML 报告。tag 初期只用于展示和搜索，不驱动 push subscription。
+实现 tag/event_tag 的初始能力，并从 read model 生成静态 HTML 报告。tag 优先来自成功 WebExtract 富化返回的 `EnrichmentResult.Tags`；未富化、富化跳过或富化失败的内容再由新增 `ITagService` 生成 fallback tags。tag 初期只用于展示和搜索，不驱动 push subscription。
 
 ### 交付物
 
 - `tag`
 - `event_tag`
-- tag 生成规则
+- `content_item_tag`
+- WebExtract tags 接入
+- `ITagService` fallback tag 生成规则
 - report read model
 - 静态 HTML 报告文件
 - `report_snapshot`
@@ -412,7 +414,7 @@
 
 - 创建 `tag`
 - 创建 `event_tag`
-- 可选创建 `content_item_tag`
+- 创建 `content_item_tag`
 - 创建 `report_snapshot`
 - 添加 tag name unique 约束
 
@@ -420,59 +422,81 @@
 
 - 新增 `Tag`
 - 新增 `EventTag`
+- 新增 `ContentItemTag`
 - 新增 `TagCategory`
 - 新增 `TagSource`
 
-#### `V2M4-T3` 实现规则 tag 生成
+#### `V2M4-T3` 扩展 WebExtract 富化结果
+
+- 将 `EnrichmentResult` 增加 `Tags` 数组
+- `Tags` 从 WebExtract JSON 顶层 `insights` 字段读取，类型为字符串数组，层级与 `title`、`summary` 同级
+- `WebExtractClient` 成功富化新闻内容时返回若干 tags
+- 将 WebExtract tags 标记为 `TagSource = web_extract`
+- WebExtract 未返回 tags 时不视为富化失败，但需要 fallback 补全
+
+#### `V2M4-T4` 实现 `ITagService` fallback tag 生成
 
 - 从 source category 生成 domain tag
-- 从事件关键词生成 topic tag
-- 从实体提取 entity tag
+- 从标题、hover text、summary 和事件关键词生成 topic tag
+- 从内容和事件上下文中提取 entity tag
+- 仅对未富化、富化跳过、富化失败或 WebExtract 未返回 tags 的内容执行 fallback
 - 控制 tag 数量，避免低质量 tag 膨胀
 
-#### `V2M4-T4` 可选接入 LLM tagging
+#### `V2M4-T5` 可选接入 LLM tagging
 
-- 对高价值事件调用 tagging LLM
+- 在 `ITagService` 中对高价值事件或 fallback 置信度不足的内容调用 tagging LLM
 - 记录 `llm_usage.stage = tagging`
 - 返回 tag 名、分类、置信度
-- LLM 失败时保留规则 tag
+- LLM 失败时保留 WebExtract tags 或规则 fallback tags
 
-#### `V2M4-T5` 实现 tag 仓储
+#### `V2M4-T6` 实现 tag 仓储
 
 - upsert tag
+- upsert content_item_tag
 - upsert event_tag
 - 查询事件 tag 列表
 - 支持按 tag 查询事件，为后续搜索预留
 
-#### `V2M4-T6` 定义 report read model
+#### `V2M4-T7` 定义 report read model
 
 - 新增 `ReportEventItem`
 - 新增 `ReportContentItem`
 - 新增 `ReportPayload`
 - 包含事件标题、摘要、阶段、score、heat、tag 和新闻链接
 
-#### `V2M4-T7` 实现 `IReportReadModelQuery`
+#### `V2M4-T8` 实现 `IReportReadModelQuery`
 
 - 查询摘要窗口内的高价值事件
 - 排除黑名单事件
 - 排除 `status = merged` 的 source event
 - 读取 event_tag 和相关新闻
 
-#### `V2M4-T8` 实现 `StaticHtmlReportRenderer`
+#### `V2M4-T9` 实现 `StaticHtmlReportRenderer`
 
 - 生成单个 HTML 文件
 - 使用简单内联样式或静态模板
 - 不引入前端构建系统
 - 文件写入 `report.outputDirectory`
 
-#### `V2M4-T9` 集成到 `DigestJob`
+#### `V2M4-T10` 集成 tag 写入到 fetch/enrich 流程
+
+- 富化成功时直接持久化 `EnrichmentResult.Tags`
+- 未富化、富化跳过、富化失败或未返回 tags 时调用 `ITagService`
+- 写入 `content_item_tag`
+- 事件归并后汇总并写入 `event_tag`
+
+#### `V2M4-T11` 集成报告到 `DigestJob`
 
 - 摘要生成时创建报告
 - 写入 `report_snapshot`
 - 可选把报告路径或 URL 放入摘要推送
 
-#### `V2M4-T10` 增加报告测试
+#### `V2M4-T12` 增加 tag 和报告测试
 
+- WebExtract tags 可写入并展示
+- WebExtract 顶层 `insights` 字符串数组可映射为 `EnrichmentResult.Tags`
+- 未富化、富化跳过和富化失败内容会调用 `ITagService`
+- WebExtract 成功但未返回 tags 时会 fallback 补全
 - read model 排序正确
 - 黑名单不出现在报告中
 - tag 展示正确
@@ -481,6 +505,8 @@
 ### 验收标准
 
 - 每个高价值事件可以关联 tag
+- 成功富化的内容优先使用 WebExtract 返回的 tags
+- 未富化、富化跳过、富化失败或 WebExtract 未返回 tags 的内容会通过 `ITagService` 获得 fallback tags
 - 摘要报告可生成并用浏览器打开
 - 报告包含事件、评分、tag、相关新闻和原文链接
 - tag 不影响 V2 初期即时推送资格
@@ -815,7 +841,7 @@
 | `P2` | `V2M1-T2` content 仓储、`V2M1-T3` event 仓储、`V2M1-T4` app state 仓储 |
 | `P3` | `V2M2-T2` telemetry 契约、`V2M2-T6` LLM usage wrapper、`V2M2-T7` 成本估算 |
 | `P4` | `V2M3-T1` source 模型、`V2M3-T4` NewsNow 改造、`V2M3-T5` DailyHotApi adapter |
-| `P5` | `V2M4-T3` 规则 tag、`V2M4-T6` report read model、`V2M4-T8` HTML renderer |
+| `P5` | `V2M4-T3` WebExtract tags、`V2M4-T4` ITagService fallback、`V2M4-T7` report read model、`V2M4-T9` HTML renderer |
 | `P6` | `V2M5-T3` EmbeddingClient、`V2M5-T4` embedding 仓储、`V2M5-T8` 召回合并 |
 | `P7` | `V2M6-T3` 相似事件对发现、`V2M6-T4` 硬过滤、`V2M6-T8` 二次归并测试 |
 | `P8` | `V2M8-T1` 单元测试、`V2M8-T3` 回归样本、`V2M8-T4` 运行文档 |
