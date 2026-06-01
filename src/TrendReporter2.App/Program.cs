@@ -125,9 +125,8 @@ static void LogConfigSummary(ILogger logger, AppConfig config, CliOptions option
     var sourceCount = registry.GetSources().Count;
     var enabledCount = registry.GetEnabledSources().Count;
     logger.LogInformation(
-        "配置已从 {ConfigPath} 加载。NewsNowBaseUrl={NewsNowBaseUrl}，配置信源数={SourceCount}，启用的信源数={EnabledCount}，抓取间隔秒={FetchInterval}。",
+        "配置已从 {ConfigPath} 加载。配置信源数={SourceCount}，启用的信源数={EnabledCount}，抓取间隔秒={FetchInterval}。",
         options.ConfigPath,
-        config.NewsNow.BaseUrl,
         sourceCount,
         enabledCount,
         config.Analysis.FetchInterval);

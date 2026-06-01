@@ -10,10 +10,6 @@
       "type": "string",
       "description": "JSON Schema 引用 (IDE 自动识别，无需手动填写)"
     },
-    "newsNow": {
-      "$ref": "#/$defs/NewsNowConfig",
-      "description": "【已废弃】旧版 NewsNow 配置；请使用 sources.newsNow 替代"
-    },
     "sources": {
       "$ref": "#/$defs/SourcesConfig",
       "description": "信源配置 — NewsNow 和 DailyHotApi 的信源列表"
@@ -58,27 +54,6 @@
     "pushers"
   ],
   "$defs": {
-    "NewsNowConfig": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "baseUrl": {
-          "type": "string",
-          "description": "NewsNow 服务地址",
-          "default": ""
-        },
-        "sources": {
-          "type": "object",
-          "description": "按 category 分组的信源列表 (旧格式)",
-          "additionalProperties": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          }
-        }
-      }
-    },
     "SourcesConfig": {
       "type": "object",
       "additionalProperties": false,

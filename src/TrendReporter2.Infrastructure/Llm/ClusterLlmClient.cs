@@ -143,7 +143,6 @@ public sealed class ClusterLlmClient : IClusterLlmClient
                             id = request.Item.Id,
                             title = request.Item.Title,
                             summary = request.Item.Summary,
-                            hoverText = request.Item.HoverText,
                             source = request.Item.Source,
                             pubTime = request.Item.PubTime
                         },

@@ -13,6 +13,7 @@ public static class AppConfigValidator
 
         ValidateSourceProvider("sources.newsNow", config.Sources.NewsNow);
         ValidateSourceProvider("sources.dailyHotApi", config.Sources.DailyHotApi);
+        Require(HasEnabledSource(config.Sources), "sources 必须至少包含一个启用的信源。");
 
         if (config.Database is null)
         {
@@ -112,6 +113,10 @@ public static class AppConfigValidator
                 Require(double.IsFinite(item.Weight) && item.Weight > 0, $"{itemPath}.weight 必须是有限且大于 0 的数字。");
             }
         }
+
+        static bool HasEnabledSource(SourcesConfig sources)
+            => sources.NewsNow.Items.Any(item => item.Enabled) ||
+                sources.DailyHotApi.Items.Any(item => item.Enabled);
     }
 
     private static bool IsRatio(double value) => value is >= 0 and <= 1;

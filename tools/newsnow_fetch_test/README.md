@@ -54,10 +54,10 @@ python newsnow_fetch_test.py --newsnow-base-url http://localhost:3000 --web-extr
 - `Source`：NewsNow 信源。
 - `Rank`：条目在 NewsNow 返回列表中的原始排名。
 - `Title`：新闻标题。
-- `HoverText`：是否存在 `extra.hover`。
+- `SummaryText`：是否存在 NewsNow 直接返回的描述信息 `extra.hover`。
 - `UrlFetch`：WebExtract 是否返回可用摘要。
 - `TitleLength`：标题长度。
-- `SummarySource`：最终摘要来源，优先级为 `HoverText`、`UrlFetch`、`TitleOnly`。
+- `SummarySource`：最终摘要来源，优先级为 `SummaryText`、`UrlFetch`、`TitleOnly`。
 - `Summary`：最终用于诊断的摘要。
 - `Error`：NewsNow 或 WebExtract 错误信息。
 

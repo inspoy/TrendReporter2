@@ -144,7 +144,6 @@ public sealed class PostgresEventRepository : IEventRepository
             ci.url as ContentUrl,
             ci.mobile_url as MobileUrl,
             ci.pub_time as PubTime,
-            ci.hover_text as HoverText,
             ci.summary as ContentSummary,
             ci.summary_source as SummarySource,
             ci.need_enrichment as NeedEnrichment,
@@ -606,7 +605,6 @@ public sealed class PostgresEventRepository : IEventRepository
             Url = row.Url,
             MobileUrl = row.MobileUrl,
             PubTime = row.PubTime,
-            HoverText = row.HoverText,
             Summary = row.Summary,
             SummarySource = row.SummarySource,
             NeedEnrichment = row.NeedEnrichment,
@@ -635,7 +633,6 @@ public sealed class PostgresEventRepository : IEventRepository
             Url = row.ContentUrl,
             MobileUrl = row.MobileUrl,
             PubTime = row.PubTime,
-            HoverText = row.HoverText,
             Summary = row.ContentSummary,
             SummarySource = row.SummarySource,
             NeedEnrichment = row.NeedEnrichment,
@@ -740,7 +737,6 @@ public sealed class PostgresEventRepository : IEventRepository
         public string Url { get; set; } = "";
         public string? MobileUrl { get; set; }
         public DateTimeOffset? PubTime { get; set; }
-        public string? HoverText { get; set; }
         public string? Summary { get; set; }
         public string? SummarySource { get; set; }
         public bool NeedEnrichment { get; set; }
@@ -851,7 +847,6 @@ public sealed class PostgresEventRepository : IEventRepository
         public string ContentUrl { get; set; } = "";
         public string? MobileUrl { get; set; }
         public DateTimeOffset? PubTime { get; set; }
-        public string? HoverText { get; set; }
         public string? ContentSummary { get; set; }
         public string? SummarySource { get; set; }
         public bool NeedEnrichment { get; set; }

@@ -2,7 +2,6 @@ using System.Text.RegularExpressions;
 using System.Text;
 using TrendReporter2.Core.Configuration;
 using TrendReporter2.Core.Content;
-using TrendReporter2.Core.News;
 using TrendReporter2.Core.Sources;
 
 namespace TrendReporter2.Core.Enrichment;
@@ -42,20 +41,12 @@ public sealed class EnrichmentPolicy : IEnrichmentPolicy
             StringComparer.OrdinalIgnoreCase);
     }
 
-    public bool NeedEnrichment(NewsItem item)
-    {
-        return NeedEnrichment(
-            item.Source,
-            item.Title,
-            item.HoverText);
-    }
-
     public bool NeedEnrichment(FetchedContentItem item)
     {
         return NeedEnrichment(
             item.SourceId,
             item.Title,
-            item.HoverText ?? item.SummaryText);
+            item.SummaryText);
     }
 
     public bool NeedEnrichment(ContentItem item)
@@ -63,10 +54,10 @@ public sealed class EnrichmentPolicy : IEnrichmentPolicy
         return NeedEnrichment(
             item.Source,
             item.Title,
-            item.HoverText);
+            item.Summary);
     }
 
-    private bool NeedEnrichment(string source, string title, string? hoverText)
+    private bool NeedEnrichment(string source, string title, string? summaryText)
     {
         if (_disabledSources.Contains(source))
         {
@@ -78,7 +69,7 @@ public sealed class EnrichmentPolicy : IEnrichmentPolicy
             return true;
         }
 
-        if (HoverLooksComplete(hoverText))
+        if (SummaryLooksComplete(summaryText))
         {
             return false;
         }
@@ -94,13 +85,13 @@ public sealed class EnrichmentPolicy : IEnrichmentPolicy
             return true;
         }
 
-        return !HasRecognizableSubject(normalizedTitle) && !HoverLooksComplete(hoverText);
+        return !HasRecognizableSubject(normalizedTitle) && !SummaryLooksComplete(summaryText);
     }
 
-    private static bool HoverLooksComplete(string? hoverText)
+    private static bool SummaryLooksComplete(string? summaryText)
     {
-        var normalizedHover = Normalize(hoverText);
-        return TextLength(normalizedHover) >= 40 && HasRecognizableSubject(normalizedHover);
+        var normalizedSummary = Normalize(summaryText);
+        return TextLength(normalizedSummary) >= 40 && HasRecognizableSubject(normalizedSummary);
     }
 
     private static bool HasRecognizableSubject(string text)

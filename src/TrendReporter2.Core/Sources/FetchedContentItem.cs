@@ -24,8 +24,6 @@ public sealed class FetchedContentItem
 
     public int? SourceListSize { get; init; }
 
-    public string? HoverText { get; init; }
-
     public string? SummaryText { get; init; }
 
     public string RawPayload { get; init; } = "{}";

@@ -70,7 +70,6 @@ public sealed class PostgresContentRepository : IContentIngestService
                     Url = item.Url,
                     MobileUrl = item.MobileUrl,
                     PubTime = item.PublishedAt,
-                    HoverText = item.HoverText,
                     Summary = summary.Value,
                     SummarySource = summary.Source,
                     NeedEnrichment = needEnrichment,
@@ -95,7 +94,6 @@ public sealed class PostgresContentRepository : IContentIngestService
                 existing.Url = item.Url;
                 existing.MobileUrl = item.MobileUrl;
                 existing.PubTime = item.PublishedAt;
-                existing.HoverText = item.HoverText;
                 existing.NeedEnrichment = _enrichmentPolicy.NeedEnrichment(item);
                 if (ShouldRefreshSourceSummary(existing.Summary, existing.SummarySource))
                 {
@@ -199,10 +197,10 @@ public sealed class PostgresContentRepository : IContentIngestService
         CancellationToken cancellationToken)
         => connection.ExecuteAsync(new CommandDefinition("""
         insert into content_item (id, dedup_key, source, source_id, category, type, content_kind, source_item_id, title, url, mobile_url, pub_time,
-            hover_text, summary, summary_source, need_enrichment, enrichment_status, enrichment_tried_at, created_at,
+            summary, summary_source, need_enrichment, enrichment_status, enrichment_tried_at, created_at,
             updated_at, last_seen_run_id, last_seen_at, last_seen_rank, raw_payload)
         values (@Id, @DedupKey, @Source, @SourceId, @Category, @Type, @ContentKind, @SourceItemId, @Title, @Url, @MobileUrl, @PubTime,
-            @HoverText, @Summary, @SummarySource, @NeedEnrichment, @EnrichmentStatus, @EnrichmentTriedAt, @CreatedAt,
+            @Summary, @SummarySource, @NeedEnrichment, @EnrichmentStatus, @EnrichmentTriedAt, @CreatedAt,
             @UpdatedAt, @LastSeenRunId, @LastSeenAt, @LastSeenRank, @RawPayload::jsonb)
         on conflict (dedup_key) do update
         set source = excluded.source,
@@ -215,7 +213,6 @@ public sealed class PostgresContentRepository : IContentIngestService
             url = excluded.url,
             mobile_url = excluded.mobile_url,
             pub_time = excluded.pub_time,
-            hover_text = excluded.hover_text,
             summary = excluded.summary,
             summary_source = excluded.summary_source,
             need_enrichment = excluded.need_enrichment,
@@ -254,7 +251,6 @@ public sealed class PostgresContentRepository : IContentIngestService
             item.Url,
             item.MobileUrl,
             PubTime = PostgresTimestamp.ToUtc(item.PubTime),
-            item.HoverText,
             item.Summary,
             item.SummarySource,
             item.NeedEnrichment,
@@ -301,7 +297,6 @@ public sealed class PostgresContentRepository : IContentIngestService
             Url = row.Url,
             MobileUrl = row.MobileUrl,
             PubTime = row.PubTime,
-            HoverText = row.HoverText,
             Summary = row.Summary,
             SummarySource = row.SummarySource,
             NeedEnrichment = row.NeedEnrichment,
@@ -330,14 +325,13 @@ public sealed class PostgresContentRepository : IContentIngestService
     private static bool ShouldRefreshSourceSummary(string? summary, string? source)
         => string.IsNullOrWhiteSpace(summary) ||
             string.Equals(source, SummarySources.TitleOnly, StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(source, SummarySources.HoverText, StringComparison.OrdinalIgnoreCase);
+            string.Equals(source, SummarySources.SummaryText, StringComparison.OrdinalIgnoreCase);
 
     private static (string Value, string Source) BuildPreferredSummary(FetchedContentItem item)
     {
-        var summary = string.IsNullOrWhiteSpace(item.SummaryText) ? item.HoverText : item.SummaryText;
-        return string.IsNullOrWhiteSpace(summary)
+        return string.IsNullOrWhiteSpace(item.SummaryText)
             ? (item.Title.Trim(), SummarySources.TitleOnly)
-            : (summary.Trim(), SummarySources.HoverText);
+            : (item.SummaryText.Trim(), SummarySources.SummaryText);
     }
 
     private static string BuildContentItemId(FetchedContentItem item)
@@ -404,7 +398,6 @@ public sealed class PostgresContentRepository : IContentIngestService
         public string Url { get; set; } = "";
         public string? MobileUrl { get; set; }
         public DateTimeOffset? PubTime { get; set; }
-        public string? HoverText { get; set; }
         public string? Summary { get; set; }
         public string? SummarySource { get; set; }
         public bool NeedEnrichment { get; set; }

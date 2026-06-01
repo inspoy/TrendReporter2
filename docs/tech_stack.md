@@ -57,20 +57,15 @@ src/TrendReporter2.Core/
 当前职责：
 
 - `Configuration/AppConfig.cs`
-  定义 YAML 配置对应的强类型模型，包括 `newsNow`、`database`、`analysis`、`llm`、`enrichment`、`filters`、`pushers`、`system`。
+  定义 YAML 配置对应的强类型模型，包括 `sources`、`database`、`analysis`、`llm`、`enrichment`、`filters`、`pushers`、`system`。
 - `Configuration/AppConfigValidator.cs`
-  做基础配置校验，例如 `newsNow.baseUrl`、`database.provider`、`database.connectionString`、`analysis.fetchInterval`、`pushTime` 格式等。
+  做基础配置校验，例如 `sources.newsNow.baseUrl`、`database.provider`、`database.connectionString`、`analysis.fetchInterval`、`pushTime` 格式等。
 - `Configuration/TimeZoneResolver.cs`
   统一解析时区，并兼容 Windows 上的 `Asia/Shanghai`。
 - `Jobs/IFetchJob.cs`
   一轮抓取任务接口；运行期主路径通过 PostgreSQL/Dapper 仓储执行入库、归并、评分和推送日志写入。
 - `Jobs/IDigestJob.cs`
   摘要任务接口；通过 PostgreSQL 查询候选，并使用 `app_state` 和 `push_log` 保持幂等。
-- `Persistence/ITrendDatabaseInitializer.cs`
-  旧 LiteDB 初始化接口，V2 默认 DI 不再注册。
-- `Persistence/TrendCollectionNames.cs`
-  LiteDB 集合名常量。
-
 后续建议：
 
 - 新闻、事件、评分、推送等领域对象优先放在 `Core`。
@@ -94,7 +89,6 @@ src/TrendReporter2.Infrastructure/
 
 - `Configuration/YamlAppConfigLoader.cs`
   使用 `YamlDotNet` 读取 YAML，并反序列化为 `AppConfig`。
-- `Persistence/LiteDbInitializer.cs`
 - `Persistence/SqlMigrationRunner.cs`
   执行 PostgreSQL 启动迁移并维护 `schema_migration`，已应用 migration 的 checksum 不可变。
 - `Persistence/Migrations/0001_init.sql`
@@ -103,14 +97,11 @@ src/TrendReporter2.Infrastructure/
   为 V2M1 仓储查询增加附加唯一约束和索引。
 - `Persistence/Postgres*Repository.cs`
   PostgreSQL/Dapper 主路径仓储，覆盖内容、事件、运行记录和摘要状态。
-- `Persistence/LiteDb*Repository.cs`
-  过渡期 LiteDB 适配器源码仍保留以便对照和后续清理，但 V2 默认运行路径不会注册或回退到 LiteDB。
 - `DependencyInjection.cs`
   集中注册 Infrastructure 层服务，包括 `NpgsqlDataSource`、迁移 runner、PostgreSQL 仓储和核心服务实现。
 
 当前引入的基础依赖：
 
-- `LiteDB`（仅过渡期适配器/测试仍引用）
 - `Dapper`
 - `Newtonsoft.Json`
 - `Npgsql`
@@ -181,7 +172,7 @@ config.example.yaml
 dotnet run --project src\TrendReporter2.App\TrendReporter2.App.csproj -- --config config.example.yaml
 ```
 
-V1 中 `config.example.yaml` 已整理为可解析 YAML，并将 `newsNow.baseUrl` 设为 `http://localhost:3000`，方便通过配置校验。实际部署时应复制为 `config.yaml` 后按本机环境修改。
+`config.example.yaml` 使用 `sources.newsNow.baseUrl` 配置 NewsNow 服务地址，并通过 `sources.*.items` 配置信源。实际部署时应复制为 `config.yaml` 后按本机环境修改。
 
 ## 4. 数据库
 
@@ -222,12 +213,12 @@ dotnet run --project src\TrendReporter2.App\TrendReporter2.App.csproj
 
 ## 6. V1 已完成能力代码落点
 
-以下代码落点对应 V1M1-V1M5 已实现的主链路能力。V2 会在保留这些业务资产的前提下，把运行期持久化主路径迁移到 PostgreSQL。
+以下代码落点对应从 V1 延续到 V2 的主链路业务能力。运行期持久化主路径已切换到 PostgreSQL。
 
 V1M1 新闻抓取与原始入库：
 
-- `Core`：维护 `NewsItem`、`ContentItem`、`ContentSnapshot`、`FetchRun` 等模型和仓储接口。
-- `Infrastructure`：维护 NewsNow 抓取客户端、内容入库服务和现有过渡期持久化适配器。
+- `Core`：维护 `FetchedContentItem`、`ContentItem`、`ContentSnapshot`、`FetchRun` 等模型和仓储接口。
+- `Infrastructure`：维护 NewsNow 抓取客户端和 PostgreSQL 内容入库仓储。
 - `App`：通过 `FetchJob`/`FetchSchedulerService` 编排抓取与入库流程。
 
 V1M2 正文增强：

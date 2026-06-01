@@ -177,13 +177,17 @@ public sealed class EnrichmentService : IEnrichmentService
 
     private static (string Value, string Source) BuildPreferredSummary(ContentItem item, string? enrichmentSummary)
     {
-        if (!string.IsNullOrWhiteSpace(item.HoverText))
+        if (string.Equals(item.SummarySource, SummarySources.SummaryText, StringComparison.OrdinalIgnoreCase) &&
+            !string.IsNullOrWhiteSpace(item.Summary))
         {
-            return (item.HoverText.Trim(), SummarySources.HoverText);
+            return (item.Summary.Trim(), SummarySources.SummaryText);
         }
 
-        return string.IsNullOrWhiteSpace(enrichmentSummary)
-            ? (item.Title.Trim(), SummarySources.TitleOnly)
-            : (enrichmentSummary.Trim(), SummarySources.Enrichment);
+        if (!string.IsNullOrWhiteSpace(enrichmentSummary))
+        {
+            return (enrichmentSummary.Trim(), SummarySources.Enrichment);
+        }
+
+        return (item.Title.Trim(), SummarySources.TitleOnly);
     }
 }

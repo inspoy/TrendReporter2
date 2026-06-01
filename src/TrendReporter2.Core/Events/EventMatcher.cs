@@ -210,8 +210,8 @@ public sealed class EventMatcher : IEventMatcher
     private static EventAggregate CreateEvent(ContentItem item, ClusterMatchResult match, DateTimeOffset now)
     {
         var title = FirstNonEmpty(match.CanonicalTitle, item.Title, item.Summary) ?? "未命名事件";
-        var summary = FirstNonEmpty(match.Summary, item.Summary, item.HoverText, item.Title) ?? title;
-        var entities = ExtractStableAnchors(title, summary, item.Title, item.Summary, item.HoverText);
+        var summary = FirstNonEmpty(match.Summary, item.Summary, item.Title) ?? title;
+        var entities = ExtractStableAnchors(title, summary, item.Title, item.Summary);
         var aliases = ExtractStableAnchors(item.Title, match.CanonicalTitle, title);
         return new EventAggregate
         {
@@ -258,13 +258,13 @@ public sealed class EventMatcher : IEventMatcher
         }
 
         AddUnique(eventAggregate.RepresentativeTitles, item.Title, RepresentativeTitleLimit);
-        var terms = ExtractKeyTerms(item.Title, item.Summary, item.HoverText);
+        var terms = ExtractKeyTerms(item.Title, item.Summary);
         foreach (var term in terms)
         {
             AddUnique(eventAggregate.KeyTerms, term, KeyTermLimit);
         }
 
-        foreach (var entity in ExtractStableAnchors(item.Title, item.Summary, item.HoverText))
+        foreach (var entity in ExtractStableAnchors(item.Title, item.Summary))
         {
             AddUnique(eventAggregate.Entities, entity, EntityLimit);
         }

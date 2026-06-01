@@ -27,7 +27,7 @@ class NewsItem:
     rank: int
     title: str
     url: str
-    hover_text: str
+    summary_text: str
 
 
 @dataclass
@@ -247,16 +247,16 @@ def valid_items(source: str, raw_items: list[Any], limit: int) -> list[NewsItem]
         if not title and not url:
             continue
         extra = item.get("extra")
-        hover_text = compact(extra.get("hover")) if isinstance(extra, dict) else ""
-        result.append(NewsItem(source=source, rank=index, title=title, url=url, hover_text=hover_text))
+        summary_text = compact(extra.get("hover")) if isinstance(extra, dict) else ""
+        result.append(NewsItem(source=source, rank=index, title=title, url=url, summary_text=summary_text))
         if len(result) >= limit:
             break
     return result
 
 
 def choose_summary(item: NewsItem, web_result: WebExtractResult) -> tuple[str, str]:
-    if item.hover_text:
-        return item.hover_text, "HoverText"
+    if item.summary_text:
+        return item.summary_text, "SummaryText"
     if web_result.ok and web_result.summary:
         return web_result.summary, "UrlFetch"
     return item.title, "TitleOnly"
@@ -274,7 +274,7 @@ def print_table(rows: list[dict[str, Any]]) -> None:
         "Source",
         "Rank",
         "Title",
-        "HoverText",
+        "SummaryText",
         "UrlFetch",
         "TitleLength",
         "SummarySource",
@@ -327,7 +327,7 @@ def main() -> int:
                         "Source": source,
                         "Rank": "",
                         "Title": "",
-                        "HoverText": "No",
+                        "SummaryText": "No",
                         "UrlFetch": "No",
                         "TitleLength": 0,
                         "SummarySource": "",
@@ -345,7 +345,7 @@ def main() -> int:
                         "Source": item.source,
                         "Rank": item.rank,
                         "Title": item.title,
-                        "HoverText": "Yes" if item.hover_text else "No",
+                        "SummaryText": "Yes" if item.summary_text else "No",
                         "UrlFetch": "Yes" if web_result.ok else "No",
                         "TitleLength": len(item.title),
                         "SummarySource": summary_source,

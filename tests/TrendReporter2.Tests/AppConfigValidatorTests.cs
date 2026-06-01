@@ -51,11 +51,20 @@ public sealed class AppConfigValidatorTests
     }
 
     [Fact]
+    public void Validate_RejectsMissingEnabledSources()
+    {
+        var config = WithSources(ValidConfig(), new SourcesConfig());
+
+        var exception = Assert.Throws<AppConfigValidationException>(() => AppConfigValidator.Validate(config));
+
+        Assert.Contains("sources 必须至少包含一个启用的信源。", exception.Errors);
+    }
+
+    [Fact]
     public void Validate_StillRunsOtherRulesWhenDatabaseIsInvalid()
     {
         var config = new AppConfig
         {
-            NewsNow = new NewsNowConfig { BaseUrl = "https://news.local" },
             Database = new DatabaseConfig { Provider = "sqlite", ConnectionString = "" },
             Analysis = new AnalysisConfig
             {
@@ -209,6 +218,26 @@ public sealed class AppConfigValidatorTests
                 Provider = "postgres",
                 ConnectionString = "Host=localhost;Database=trend;Username=trend;Password=secret"
             },
+            Sources = new SourcesConfig
+            {
+                NewsNow = new SourceProviderConfig
+                {
+                    BaseUrl = "https://news.local",
+                    Items =
+                    [
+                        new SourceItemConfig
+                        {
+                            Id = "newsnow:china:ifeng",
+                            ExternalId = "ifeng",
+                            Category = "china",
+                            DisplayName = "凤凰网",
+                            ContentKind = ContentKind.RankedNews,
+                            Enabled = true,
+                            Weight = 1.0
+                        }
+                    ]
+                }
+            },
             Analysis = new AnalysisConfig
             {
                 FetchInterval = 3600,
@@ -248,7 +277,6 @@ public sealed class AppConfigValidatorTests
     private static AppConfig WithDatabase(AppConfig config, DatabaseConfig database)
         => new()
         {
-            NewsNow = config.NewsNow,
             Sources = config.Sources,
             Database = database,
             Analysis = config.Analysis,
@@ -262,7 +290,6 @@ public sealed class AppConfigValidatorTests
     private static AppConfig WithSources(AppConfig config, SourcesConfig sources)
         => new()
         {
-            NewsNow = config.NewsNow,
             Sources = sources,
             Database = config.Database,
             Analysis = config.Analysis,

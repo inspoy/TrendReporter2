@@ -26,8 +26,6 @@ public sealed class ContentItem
 
     public DateTimeOffset? PubTime { get; set; }
 
-    public string? HoverText { get; set; }
-
     public string? Summary { get; set; }
 
     public string? SummarySource { get; set; }

@@ -41,7 +41,7 @@ public sealed class PostgresRepositoryIntegrationTests
             Title = "AI company announces major product update",
             Url = "https://example.test/news/1",
             PublishedAt = pubTimeWithOffset,
-            HoverText = "AI company announces major product update with enough context for matching.",
+            SummaryText = "AI company announces major product update with enough context for matching.",
             Rank = 1,
             SourceListSize = 10,
             RawPayload = "{\"id\":1}"
@@ -58,7 +58,7 @@ public sealed class PostgresRepositoryIntegrationTests
             Title = "AI company announces updated product details",
             Url = item.Url,
             PublishedAt = pubTimeWithOffset,
-            HoverText = item.HoverText,
+            SummaryText = item.SummaryText,
             Rank = item.Rank,
             SourceListSize = item.SourceListSize,
             RawPayload = item.RawPayload
@@ -107,7 +107,7 @@ public sealed class PostgresRepositoryIntegrationTests
             DedupKey = "source-a:item-1",
             Title = "Major summit reaches new climate agreement",
             Url = "https://example.test/news/1",
-            HoverText = "Major summit reaches a new climate agreement after all-night talks.",
+            SummaryText = "Major summit reaches a new climate agreement after all-night talks.",
             Rank = 2,
             SourceListSize = 10,
             RawPayload = "{}"

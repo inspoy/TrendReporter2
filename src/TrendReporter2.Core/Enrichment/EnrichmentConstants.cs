@@ -3,7 +3,7 @@ namespace TrendReporter2.Core.Enrichment;
 public static class SummarySources
 {
     public const string TitleOnly = "TitleOnly";
-    public const string HoverText = "HoverText";
+    public const string SummaryText = "SummaryText";
     public const string Enrichment = "Enrichment";
 }
 

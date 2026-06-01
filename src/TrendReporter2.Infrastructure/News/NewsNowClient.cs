@@ -84,7 +84,6 @@ public sealed class NewsNowClient : IContentSourceClient
                 PublishedAt = ParseDate(item["pubDate"]) ?? ParseDate(item["extra"]?["date"]),
                 Rank = i + 1,
                 SourceListSize = sourceListSize,
-                HoverText = item["extra"]?.Value<string>("hover"),
                 SummaryText = item["extra"]?.Value<string>("hover"),
                 RawPayload = item.ToString(Formatting.None)
             });
@@ -102,9 +101,7 @@ public sealed class NewsNowClient : IContentSourceClient
 
     private Uri BuildContentSourceRequestUri(string source)
     {
-        var baseUrl = !string.IsNullOrWhiteSpace(_config.Sources.NewsNow.BaseUrl)
-            ? _config.Sources.NewsNow.BaseUrl
-            : _config.NewsNow.BaseUrl;
+        var baseUrl = _config.Sources.NewsNow.BaseUrl;
 
         if (!baseUrl.EndsWith("/", StringComparison.Ordinal))
         {

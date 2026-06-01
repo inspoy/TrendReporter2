@@ -23,6 +23,18 @@ public sealed class ProgramStartupMigrationTests
     }
 
     [Fact]
+    public async Task ValidateCommand_RejectsLegacyNewsNowOnlyConfig()
+    {
+        using var directory = TempDirectory.Create();
+        var configPath = WriteLegacyNewsNowOnlyConfig(directory.Path);
+
+        var result = await RunAppAsync("validate", "--config", configPath);
+
+        Assert.NotEqual(0, result.ExitCode);
+        Assert.Contains("sources 必须至少包含一个启用的信源。", result.CombinedOutput);
+    }
+
+    [Fact]
     public async Task NonValidateStartup_WhenMigrateOnStartupIsTrue_FailsFastOnMigrationFailure()
     {
         using var directory = TempDirectory.Create();
@@ -176,12 +188,34 @@ public sealed class ProgramStartupMigrationTests
     {
         var configPath = Path.Combine(directory, "config.yaml");
         File.WriteAllText(configPath, $$"""
+        sources:
+          newsNow:
+            baseUrl: "https://news.local"
+            items:
+              - externalId: "ifeng"
+                category: "china"
+                displayName: "凤凰网"
+                contentKind: "ranked_news"
+                enabled: true
+                weight: 1.0
+        database:
+          provider: "postgres"
+          connectionString: "Host=127.0.0.1;Port=1;Database=trend;Username=trend;Password=secret;Timeout=1;Command Timeout=1"
+          migrateOnStartup: {{migrateOnStartup.ToString().ToLowerInvariant()}}
+        """);
+        return configPath;
+    }
+
+    private static string WriteLegacyNewsNowOnlyConfig(string directory)
+    {
+        var configPath = Path.Combine(directory, "legacy-config.yaml");
+        File.WriteAllText(configPath, """
         newsNow:
           baseUrl: "https://news.local"
         database:
           provider: "postgres"
           connectionString: "Host=127.0.0.1;Port=1;Database=trend;Username=trend;Password=secret;Timeout=1;Command Timeout=1"
-          migrateOnStartup: {{migrateOnStartup.ToString().ToLowerInvariant()}}
+          migrateOnStartup: false
         """);
         return configPath;
     }

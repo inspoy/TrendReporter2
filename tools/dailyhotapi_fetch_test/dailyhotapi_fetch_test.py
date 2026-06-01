@@ -373,7 +373,7 @@ def valid_items(source: str, raw_items: JsonList, limit: int) -> list[DailyHotIt
         item_mapping = cast(JsonObject, item)
         title = parse_item_text(item_mapping, "title", "name")
         url = parse_item_text(item_mapping, "url", "mobileUrl", "link")
-        summary_text = parse_item_text(item_mapping, "desc", "description", "summary", "hot")
+        summary_text = parse_item_text(item_mapping, "desc", "description", "summary")
         hot = parse_item_text(item_mapping, "hot", "hotness")
         if not title and not url and not summary_text:
             continue

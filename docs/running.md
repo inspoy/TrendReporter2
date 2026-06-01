@@ -10,7 +10,7 @@
 
 重点配置项：
 
-- `newsNow.baseUrl`：NewsNow 服务地址，抓取接口为 `GET /api/s?id=source`。
+- `sources.newsNow.baseUrl`：NewsNow 服务地址，抓取接口为 `GET /api/s?id=source`。
 - `database.provider`：示例固定为 `postgres`。
 - `database.connectionString`：PostgreSQL 连接串，占位值仅用于本地示例。
 - `database.migrateOnStartup`：是否在启动时执行迁移，示例中显式开启。
@@ -69,7 +69,7 @@ V2 使用 PostgreSQL 作为运行期主数据库。启动迁移由 `SqlMigration
 
 - 配置校验失败：先运行 `validate --config config.example.yaml` 确认模板可用，再检查本地 `config.yaml` 的 URL、时间、并发数和时区。
 - PostgreSQL 连接失败：检查 `database.connectionString`、数据库是否启动、账号权限以及是否允许创建 `vector` 扩展。
-- NewsNow 请求失败：单个信源失败会记录在 `fetch_run.Errors`，其他信源继续运行。检查 `newsNow.baseUrl` 和对应 `source`。
+- NewsNow 请求失败：单个信源失败会记录在 `fetch_run.Errors`，其他信源继续运行。检查 `sources.newsNow.baseUrl` 和对应 `source`。
 - WebExtract 失败：客户端会先解析响应体；只有传输异常、响应体声明失败或空摘要时才降级为标题/hover 摘要，不中断抓取。
 - LLM 未配置或失败：事件归并会倾向创建新事件，重要性判定回到中性结果。
 - Unipush 失败：失败会写入 `push_log` 并记录日志，当前不会自动重试。

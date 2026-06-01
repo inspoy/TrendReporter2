@@ -2,14 +2,14 @@ using TrendReporter2.Core.Configuration;
 using TrendReporter2.Core.Content;
 using TrendReporter2.Core.Enrichment;
 using TrendReporter2.Core.Events;
-using TrendReporter2.Core.News;
+using TrendReporter2.Core.Sources;
 
 namespace TrendReporter2.Tests;
 
 public sealed class CorePolicyTests
 {
     [Fact]
-    public void EnrichmentPolicy_UsesSourceHoverAndTitleSignals()
+    public void EnrichmentPolicy_UsesSourceSummaryAndTitleSignals()
     {
         var policy = new EnrichmentPolicy(new AppConfig
         {
@@ -21,13 +21,13 @@ public sealed class CorePolicyTests
             }
         });
 
-        Assert.True(policy.NeedEnrichment(new NewsItem { Source = "forced", Title = "完整标题", HoverText = CompleteHover() }));
-        Assert.False(policy.NeedEnrichment(new NewsItem { Source = "disabled", Title = "突发", HoverText = null }));
-        Assert.False(policy.NeedEnrichment(new NewsItem { Source = "forced-disabled", Title = "突发", HoverText = null }));
-        Assert.False(policy.NeedEnrichment(new NewsItem { Source = "other", Title = "OpenAI 发布新的模型能力", HoverText = CompleteHover() }));
-        Assert.True(policy.NeedEnrichment(new NewsItem { Source = "other", Title = "突发", HoverText = null }));
-        Assert.False(policy.NeedEnrichment(new ContentItem { Source = "disabled", Title = "突发", HoverText = null }));
-        Assert.False(policy.NeedEnrichment(new ContentItem { Source = "other", Title = "OpenAI 发布新的模型能力", HoverText = null }));
+        Assert.True(policy.NeedEnrichment(new FetchedContentItem { SourceId = "forced", Title = "完整标题", SummaryText = CompleteSummary() }));
+        Assert.False(policy.NeedEnrichment(new FetchedContentItem { SourceId = "disabled", Title = "突发", SummaryText = null }));
+        Assert.False(policy.NeedEnrichment(new FetchedContentItem { SourceId = "forced-disabled", Title = "突发", SummaryText = null }));
+        Assert.False(policy.NeedEnrichment(new FetchedContentItem { SourceId = "other", Title = "OpenAI 发布新的模型能力", SummaryText = CompleteSummary() }));
+        Assert.True(policy.NeedEnrichment(new FetchedContentItem { SourceId = "other", Title = "突发", SummaryText = null }));
+        Assert.False(policy.NeedEnrichment(new ContentItem { Source = "disabled", Title = "突发", Summary = null }));
+        Assert.False(policy.NeedEnrichment(new ContentItem { Source = "other", Title = "OpenAI 发布新的模型能力", Summary = null }));
     }
 
     [Fact]
@@ -71,7 +71,7 @@ public sealed class CorePolicyTests
         Assert.Contains("char_ngram_jaccard", candidates[0].MatchedFeatures);
     }
 
-    private static string CompleteHover()
+    private static string CompleteSummary()
         => "OpenAI 发布新的模型能力，多个来源报道该功能已经开始灰度，行业正在评估影响。";
 
     private static EventAggregate Event(string id, string title, DateTimeOffset lastSeenAt, List<string> keyTerms, List<string> representativeTitles)

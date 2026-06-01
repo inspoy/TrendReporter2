@@ -1,7 +1,4 @@
 # yaml-language-server: $schema=./config.schema.json
-newsNow:
-  baseUrl: "http://localhost:3000"
-
 sources:
   newsNow:
     baseUrl: "http://localhost:3000"

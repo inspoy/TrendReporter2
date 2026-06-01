@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Newtonsoft.Json.Linq;
 using TrendReporter2.Core.Configuration;
 using TrendReporter2.Core.Content;
+using TrendReporter2.Core.Enrichment;
 using TrendReporter2.Core.Events;
 using TrendReporter2.Core.Observability;
 using TrendReporter2.Core.Sources;
@@ -29,7 +30,7 @@ public sealed class InfrastructureAdapterTests
           ]
         }
         """));
-        IContentSourceClient client = new NewsNowClient(new HttpClient(handler), new AppConfig { NewsNow = new NewsNowConfig { BaseUrl = "https://news.local" } }, NullLoggerFactory.Instance);
+        IContentSourceClient client = new NewsNowClient(new HttpClient(handler), Config(newsNowBaseUrl: "https://news.local"), NullLoggerFactory.Instance);
 
         var source = new SourceDefinition("newsnow:tech:source-a", SourceProviders.NewsNow, "source-a", "tech", "source-a", ContentKind.RankedNews, true, 1.0);
         var items = await client.FetchAsync(source, CancellationToken.None);
@@ -40,7 +41,7 @@ public sealed class InfrastructureAdapterTests
         Assert.False(string.IsNullOrWhiteSpace(items[1].SourceItemId));
         Assert.Equal(2, items[1].Rank);
         Assert.Equal(4, items[1].SourceListSize);
-        Assert.Equal("摘要一", items[0].HoverText);
+        Assert.Equal("摘要一", items[0].SummaryText);
     }
 
     [Fact]
@@ -54,7 +55,7 @@ public sealed class InfrastructureAdapterTests
           ]
         }
         """));
-        IContentSourceClient client = new NewsNowClient(new HttpClient(handler), new AppConfig { NewsNow = new NewsNowConfig { BaseUrl = "https://news.local" } }, NullLoggerFactory.Instance);
+        IContentSourceClient client = new NewsNowClient(new HttpClient(handler), Config(newsNowBaseUrl: "https://news.local"), NullLoggerFactory.Instance);
 
         var items = await client.FetchAsync(Source(ContentKind.RankedNews, provider: SourceProviders.NewsNow, externalId: "source-a"), CancellationToken.None);
 
@@ -69,7 +70,7 @@ public sealed class InfrastructureAdapterTests
         Assert.Equal(1, item.Rank);
         Assert.Equal(1, item.SourceListSize);
         Assert.Equal("https://m.example.com/1", item.MobileUrl);
-        Assert.Equal("摘要一", item.HoverText);
+        Assert.Equal("摘要一", item.SummaryText);
     }
 
     [Fact]
@@ -100,7 +101,7 @@ public sealed class InfrastructureAdapterTests
         Assert.Equal(1, items[0].Rank);
         Assert.Equal(4, items[0].SourceListSize);
         Assert.Equal(2, items[1].Rank);
-        Assert.Equal("100万", items[1].SummaryText);
+        Assert.True(string.IsNullOrEmpty(items[1].SummaryText));
     }
 
     [Fact]
@@ -155,6 +156,38 @@ public sealed class InfrastructureAdapterTests
         var failedBodyClient = new WebExtractEnrichmentClient(new HttpClient(failedBodyHandler), Config(webExtractUrl: "https://extract.local"), NullLoggerFactory.Instance);
 
         Assert.Null(await failedBodyClient.EnrichAsync(ContentItem(), CancellationToken.None));
+    }
+
+    [Fact]
+    public void EnrichmentService_PrefersSuccessfulEnrichmentOverTitleOnlySummary()
+    {
+        var summary = InvokeBuildPreferredSummary(
+            new ContentItem
+            {
+                Title = "短标题",
+                Summary = "短标题",
+                SummarySource = SummarySources.TitleOnly
+            },
+            "网页抽取返回的完整摘要");
+
+        Assert.Equal("网页抽取返回的完整摘要", summary.Value);
+        Assert.Equal(SummarySources.Enrichment, summary.Source);
+    }
+
+    [Fact]
+    public void EnrichmentService_PreservesSourceSummaryOverSuccessfulEnrichment()
+    {
+        var summary = InvokeBuildPreferredSummary(
+            new ContentItem
+            {
+                Title = "短标题",
+                Summary = "来源直接返回的摘要",
+                SummarySource = SummarySources.SummaryText
+            },
+            "网页抽取返回的完整摘要");
+
+        Assert.Equal("来源直接返回的摘要", summary.Value);
+        Assert.Equal(SummarySources.SummaryText, summary.Source);
     }
 
     [Fact]
@@ -243,15 +276,30 @@ public sealed class InfrastructureAdapterTests
         Assert.Equal("HTTP 502", usage.Error);
     }
 
-    private static AppConfig Config(string webExtractUrl = "", string pusherUrl = "", string pusherSecret = "", string pusherCate = "default", string channels = "", string dailyHotApiBaseUrl = "")
+    private static AppConfig Config(string webExtractUrl = "", string pusherUrl = "", string pusherSecret = "", string pusherCate = "default", string channels = "", string dailyHotApiBaseUrl = "", string newsNowBaseUrl = "")
         => new()
         {
             Database = new DatabaseConfig { Provider = "postgres", ConnectionString = "Host=localhost;Database=trend;Username=trend;Password=secret" },
-            Sources = new SourcesConfig { DailyHotApi = new SourceProviderConfig { BaseUrl = dailyHotApiBaseUrl } },
+            Sources = new SourcesConfig
+            {
+                NewsNow = new SourceProviderConfig { BaseUrl = newsNowBaseUrl },
+                DailyHotApi = new SourceProviderConfig { BaseUrl = dailyHotApiBaseUrl }
+            },
             Enrichment = new EnrichmentConfig { WebExtractUrl = webExtractUrl, MaxRequestsPerRun = 5, RetryCooldownHours = 12 },
             System = new SystemConfig { MaxParallelEnrichment = 1 },
             Pushers = string.IsNullOrWhiteSpace(pusherUrl) ? [] : [new PusherConfig { Type = "unipush", Url = pusherUrl, Secret = pusherSecret, Cate = pusherCate, Channels = channels }]
         };
+
+    private static (string Value, string Source) InvokeBuildPreferredSummary(ContentItem item, string? enrichmentSummary)
+    {
+        var method = typeof(EnrichmentService).GetMethod(
+            "BuildPreferredSummary",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+        Assert.NotNull(method);
+        var result = method.Invoke(null, [item, enrichmentSummary]);
+        Assert.NotNull(result);
+        return ((string Value, string Source))result;
+    }
 
     private static SourceDefinition Source(string contentKind, string provider = SourceProviders.DailyHotApi, string externalId = "weibo")
         => new("source-id", provider, externalId, "tech", "微博", contentKind, true, 1.0);

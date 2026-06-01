@@ -102,7 +102,7 @@ FetchSchedulerService
   -> FetchJob
     -> ISourceRegistry
     -> IContentSourceClient
-    -> ContentIngestService
+    -> IContentIngestService
     -> EnrichmentService
     -> IEventCandidateService
        -> RuleEventCandidateService
@@ -246,7 +246,7 @@ sources:
         weight: 1.0
 ```
 
-兼容策略：V2 可以在 V2M0 或 V2M3 中提供一次性配置改造，把旧 `newsNow.sources` 映射成 source registry 输入，但不提供长期双配置模式。
+兼容策略：当前实现只保留统一 `sources` 配置，不再支持旧版 NewsNow 专用配置。
 
 ### 6.3 LLM 和 embedding 配置
 
@@ -747,7 +747,7 @@ V2 `FetchJob` 建议流程：
 2. 从 `ISourceRegistry` 读取启用 source。
 3. 按 provider 找到对应 `IContentSourceClient`。
 4. 有限并发抓取 source，写入 `fetch_run_source`。
-5. 将抓取结果传给 `ContentIngestService`。
+5. 将抓取结果传给 `IContentIngestService`。
 6. 对 `NeedEnrichment` 内容按预算调用 WebExtract。
 7. 对内容执行规则召回和向量召回，合并候选。
 8. 调用 `EventMatcher` 新建、更新或复活事件。

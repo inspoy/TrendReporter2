@@ -1,6 +1,6 @@
 # PROJECT KNOWLEDGE BASE
 
-**Updated:** 2026-05-06 CST
+**Updated:** 2026-05-29 CST
 **Branch:** master
 
 ## OVERVIEW
@@ -42,10 +42,9 @@ Tests -> App/Core/Infrastructure
 | CLI parsing | `src/TrendReporter2.App/Program.cs` | Manual parser for background, validate, fetch-once, digest-once. |
 | Config schema | `src/TrendReporter2.Core/Configuration/AppConfig.cs` | Strong typed YAML model and defaults. |
 | Config validation | `src/TrendReporter2.Core/Configuration/AppConfigValidator.cs` | Required fields, ratios, times, timezone. |
-| Persistence names | `src/TrendReporter2.Core/Persistence/TrendCollectionNames.cs` | Logical names retained for repository/table mapping, including `app_state`. |
 | Event matching/scoring | `src/TrendReporter2.Core/Events/` | Matching, scoring, blacklisting, digest candidate rules, app state contract. |
 | Enrichment policy/adapters | `src/TrendReporter2.Core/Enrichment/`, `src/TrendReporter2.Infrastructure/Enrichment/` | Weak-title policy, WebExtract calls, cooldowns, budgets. |
-| PostgreSQL migrations / persistence | `src/TrendReporter2.Infrastructure/Persistence/` | SQL migrations, legacy adapters, IDs, dedup keys, repository queries, app state persistence. |
+| PostgreSQL migrations / persistence | `src/TrendReporter2.Infrastructure/Persistence/` | SQL migrations, IDs, dedup keys, repository queries, app state persistence. |
 | HTTP NewsNow adapter | `src/TrendReporter2.Infrastructure/News/NewsNowClient.cs` | Calls `GET /api/s?id=source`. |
 | NewsNow enrichment diagnostic | `tools/newsnow_fetch_test/` | Python venv helper; reads `sources.txt` and `.env`, tests HoverText/WebExtract/title length for configurable items per source. |
 | LLM adapters | `src/TrendReporter2.Infrastructure/Llm/` | OpenAI-compatible chat completions; JSON-only responses. |
@@ -65,8 +64,8 @@ Tests -> App/Core/Infrastructure
 | `EventBlacklistPolicy` | policy | `Core/Events/EventBlacklistPolicy.cs` | Applies configured blacklist keywords to events. |
 | `IEventRepository` | contract | `Core/Events/EventContracts.cs` | Event, score, push-log, digest candidate persistence boundary. |
 | `IAppStateRepository` | contract | `Core/Events/EventContracts.cs` | App state persistence boundary for digest idempotency. |
-| `LiteDbEventRepository` | repository | `Infrastructure/Persistence/LiteDbEventRepository.cs` | Transitional LiteDB adapter for event, score, and push-log persistence until V2M1 PostgreSQL repositories replace it. |
-| `LiteDbAppStateRepository` | repository | `Infrastructure/Persistence/LiteDbAppStateRepository.cs` | Transitional LiteDB adapter for `app_state` get/upsert until V2M1 PostgreSQL repositories replace it. |
+| `PostgresEventRepository` | repository | `Infrastructure/Persistence/PostgresEventRepository.cs` | PostgreSQL event, score, push-log, and digest candidate persistence. |
+| `PostgresFetchRunRepository` | repository | `Infrastructure/Persistence/PostgresFetchRunRepository.cs` | PostgreSQL fetch-run persistence and app-state repository implementation. |
 | `ClusterLlmClient` | adapter | `Infrastructure/Llm/ClusterLlmClient.cs` | Event-cluster LLM decision adapter. |
 | `JudgeLlmClient` | adapter | `Infrastructure/Llm/JudgeLlmClient.cs` | Event importance judge LLM adapter. |
 

@@ -194,6 +194,19 @@ public sealed class PostgresSchemaMigrationTests
     }
 
     [Fact]
+    public void SummaryTextUnificationMigration_BackfillsAndDropsHoverText()
+    {
+        var normalized = NormalizeSql(File.ReadAllText(Path.Combine(InitMigrationDirectory(), "0005_summary_text_unification.sql")));
+
+        Assert.Contains("set summary = hover_text", normalized);
+        Assert.Contains("summary_source = 'summarytext'", normalized);
+        Assert.Contains("nullif(summary, '') is null", normalized);
+        Assert.Contains("nullif(hover_text, '') is not null", normalized);
+        Assert.Contains("alter table content_item drop column hover_text", normalized);
+        Assert.Contains("where summary_source = 'hovertext'", normalized);
+    }
+
+    [Fact]
     [Trait("Category", "PostgresIntegration")]
     public async Task RunAsync_WhenPostgresIsAvailable_AppliesRealInitSchema()
     {
@@ -219,7 +232,7 @@ public sealed class PostgresSchemaMigrationTests
 
             var result = await runner.RunAsync(CancellationToken.None);
 
-            Assert.Equal(new SqlMigrationRunResult(4, 0), result);
+            Assert.Equal(new SqlMigrationRunResult(5, 0), result);
             await using var verifyConnection = await dataSource.OpenConnectionAsync();
             var tables = (await verifyConnection.QueryAsync<string>("""
             select table_name
@@ -243,6 +256,14 @@ public sealed class PostgresSchemaMigrationTests
             {
                 Assert.Contains(table, tables);
             }
+
+            var contentItemColumns = (await verifyConnection.QueryAsync<string>("""
+            select column_name
+            from information_schema.columns
+            where table_schema = current_schema()
+              and table_name = 'content_item';
+            """)).ToHashSet(StringComparer.Ordinal);
+            Assert.DoesNotContain("hover_text", contentItemColumns);
 
             Assert.Contains("schema_migration", tables);
             Assert.Contains("uq_content_item_dedup_key", constraintNames);

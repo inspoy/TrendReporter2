@@ -11,9 +11,7 @@ TrendReporter2.Core/
 ├── Enrichment/     # enrichment contracts, statuses, policy
 ├── Events/         # event aggregate, matching, scoring, blacklist, push/app-state contracts
 ├── Fetch/          # fetch_run model and repository contract
-├── Jobs/           # fetch and digest job contracts
-├── News/           # raw news item and source-client contract
-└── Persistence/    # persistence initializer contract and logical names
+└── Jobs/           # fetch and digest job contracts
 ```
 
 ## WHERE TO LOOK
@@ -21,13 +19,12 @@ TrendReporter2.Core/
 |------|----------|-------|
 | Config shape/defaults | `Configuration/AppConfig.cs` | Mirrors YAML keys via camelCase binding. |
 | Config validation | `Configuration/AppConfigValidator.cs` | Positive values, ratios, push times, timezone. |
-| Persistence name list | `Persistence/TrendCollectionNames.cs` | Logical names retained for repository/table mapping; includes `app_state`. |
 | Event domain | `Events/EventAggregate.cs` | Event lifecycle fields, blacklist fields, status strings. |
 | Matching algorithm | `Events/EventMatcher.cs` | Active/stale recall, stable anchors, LLM decision handling. |
 | Scoring/push rules | `Events/EventScoringService.cs` | Eligibility, blacklist, progress stages, push dedup. |
 | Blacklist policy | `Events/EventBlacklistPolicy.cs` | Applies configured blacklist keywords to event title/summary. |
 | App state contract | `Events/AppState.cs`, `Events/EventContracts.cs` | `AppState` model and `IAppStateRepository` contract. |
-| Adapter contracts | `Events/EventContracts.cs`, `News/`, `Enrichment/` | Implement in Infrastructure. |
+| Adapter contracts | `Events/EventContracts.cs`, `Sources/`, `Enrichment/` | Implement in Infrastructure. |
 
 ## CONVENTIONS
 - Core has no project references; keep third-party adapters out.

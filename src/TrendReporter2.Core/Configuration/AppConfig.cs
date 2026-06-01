@@ -2,8 +2,6 @@ namespace TrendReporter2.Core.Configuration;
 
 public sealed class AppConfig
 {
-    public NewsNowConfig NewsNow { get; init; } = new();
-
     public SourcesConfig Sources { get; init; } = new();
 
     public DatabaseConfig? Database { get; init; }
@@ -19,13 +17,6 @@ public sealed class AppConfig
     public List<PusherConfig> Pushers { get; init; } = [];
 
     public SystemConfig System { get; init; } = new();
-}
-
-public sealed class NewsNowConfig
-{
-    public string BaseUrl { get; init; } = string.Empty;
-
-    public Dictionary<string, List<string>> Sources { get; init; } = new(StringComparer.OrdinalIgnoreCase);
 }
 
 public sealed class SourcesConfig

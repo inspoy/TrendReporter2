@@ -58,7 +58,11 @@ public sealed class DailyHotApiClient : IContentSourceClient
 
             var title = FirstText(item, "title", "name");
             var url = FirstText(item, "url", "mobileUrl", "link");
-            var summaryText = FirstText(item, "desc", "description", "summary", "hot");
+            var summaryText = FirstText(item, "desc", "description", "summary");
+            if (string.IsNullOrWhiteSpace(summaryText))
+            {
+                summaryText = FirstText(item["extra"] as JObject, "hover");
+            }
             if (string.IsNullOrWhiteSpace(title) && string.IsNullOrWhiteSpace(url) && string.IsNullOrWhiteSpace(summaryText))
             {
                 _logger.LogWarning("跳过空 DailyHotApi 条目，来源={Source}，索引={Index}。", source.ExternalId, i);
@@ -86,8 +90,6 @@ public sealed class DailyHotApiClient : IContentSourceClient
                     : null,
                 Rank = source.ContentKind == ContentKind.RankedNews ? i + 1 : null,
                 SourceListSize = source.ContentKind == ContentKind.RankedNews ? items.Count : null,
-                HoverText = FirstText(item, "desc", "description", "summary", "hot")
-                    ?? FirstText(item["extra"] as JObject, "hover"),
                 SummaryText = summaryText,
                 RawPayload = item.ToString(Formatting.None)
             });

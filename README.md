@@ -65,8 +65,9 @@ TrendReporter2.Core -> 无项目依赖
 安装 .NET 8 SDK，并确保本机可以访问配置中的 NewsNow 服务。示例配置默认使用：
 
 ```yaml
-newsNow:
-  baseUrl: "http://localhost:3000"
+sources:
+  newsNow:
+    baseUrl: "http://localhost:3000"
 ```
 
 ### 2. 准备配置
@@ -79,8 +80,8 @@ cp config.example.yaml config.yaml
 
 按本机环境修改 `config.yaml`，重点检查：
 
-- `newsNow.baseUrl`：NewsNow 服务地址。
-- `newsNow.sources`：需要抓取的分类和信源。
+- `sources.newsNow.baseUrl`：NewsNow 服务地址。
+- `sources.newsNow.items`：需要抓取的 NewsNow 信源。
 - `database.provider`：当前示例固定为 `postgres`。
 - `database.connectionString`：PostgreSQL 连接串，占位值仅用于本地示例。
 - `database.migrateOnStartup`：是否在启动时执行迁移，示例中显式开启。
@@ -140,7 +141,7 @@ dotnet run --project src/TrendReporter2.App/TrendReporter2.App.csproj -- digest-
 
 如需查看数据库内容，请使用 `psql` 或 SQL 客户端直接连接 PostgreSQL。
 
-NewsNow 信源富化适配性诊断工具位于 `tools/newsnow_fetch_test/`。它使用 Python venv 和 `.env`，从 `sources.txt` 读取信源，按 `NEWS_ITEM_LIMIT` 检查每个信源的若干条新闻的 `HoverText`、WebExtract URL 抽取可用性、标题长度和最终摘要来源。
+NewsNow 信源富化适配性诊断工具位于 `tools/newsnow_fetch_test/`。它使用 Python venv 和 `.env`，从 `sources.txt` 读取信源，按 `NEWS_ITEM_LIMIT` 检查每个信源的若干条新闻的 `SummaryText`、WebExtract URL 抽取可用性、标题长度和最终摘要来源。
 
 ```bash
 cd tools/newsnow_fetch_test
@@ -155,7 +156,7 @@ python newsnow_fetch_test.py
 
 主要配置段如下：
 
-- `newsNow`：NewsNow 服务地址和分类信源列表。
+- `sources`：NewsNow 和 DailyHotApi 的服务地址与信源列表。
 - `database`：PostgreSQL 连接和启动迁移配置。
 - `analysis`：抓取间隔、分析窗口、事件归并阈值、重复推送阈值等。
 - `llm`：事件归并、重要性判断、摘要润色等模型配置。

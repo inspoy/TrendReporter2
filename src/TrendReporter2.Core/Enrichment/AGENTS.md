@@ -14,7 +14,7 @@ Core enrichment contracts and policy. Decides which weak news/content items need
 | Config | `../Configuration/AppConfig.cs` | `EnrichmentConfig` thresholds and WebExtract URL. |
 
 ## CONVENTIONS
-- Policy works for both `NewsItem` before ingest and `ContentItem` after persistence.
+- Policy works for both `FetchedContentItem` before ingest and `ContentItem` after persistence.
 - Enabled sources always enrich; otherwise complete hover text can skip enrichment.
 - Title weakness uses Unicode-aware text length and CJK/entity-like subject detection.
 - Summary source/status strings persist across repository boundaries; use constants rather than literals.
