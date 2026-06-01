@@ -53,6 +53,8 @@ public sealed class NewsNowClient : IContentSourceClient
         var items = root["items"] as JArray ?? [];
         var sourceListSize = items.Count;
         var result = new List<FetchedContentItem>(sourceListSize);
+        var isRankedNews = string.Equals(source.ContentKind, ContentKind.RankedNews, StringComparison.OrdinalIgnoreCase);
+        var isFlashFeed = string.Equals(source.ContentKind, ContentKind.FlashFeed, StringComparison.OrdinalIgnoreCase);
 
         for (var i = 0; i < sourceListSize; i++)
         {
@@ -76,14 +78,14 @@ public sealed class NewsNowClient : IContentSourceClient
                 SourceId = source.Id,
                 SourceItemId = sourceItemId,
                 DedupKey = BuildDedupKey(source.Id, sourceItemId),
-                ContentKind = ContentKind.RankedNews,
+                ContentKind = source.ContentKind,
                 Title = title,
                 Url = url,
                 MobileUrl = item.Value<string>("mobileUrl")?.Trim(),
                 Category = source.Category,
-                PublishedAt = ParseDate(item["pubDate"]) ?? ParseDate(item["extra"]?["date"]),
-                Rank = i + 1,
-                SourceListSize = sourceListSize,
+                PublishedAt = isFlashFeed ? ParseDate(item["pubDate"]) ?? ParseDate(item["extra"]?["date"]) : null,
+                Rank = isRankedNews ? i + 1 : null,
+                SourceListSize = isRankedNews ? sourceListSize : null,
                 SummaryText = item["extra"]?.Value<string>("hover"),
                 RawPayload = item.ToString(Formatting.None)
             });

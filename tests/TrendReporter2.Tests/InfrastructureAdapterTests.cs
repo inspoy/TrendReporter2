@@ -74,6 +74,30 @@ public sealed class InfrastructureAdapterTests
     }
 
     [Fact]
+    public async Task NewsNowClient_FlashFeed_LeavesRankNullAndParsesPublishedTime()
+    {
+        var handler = new TestHttpMessageHandler(_ => TestHttpMessageHandler.Json(HttpStatusCode.OK, """
+        {
+          "status": "success",
+          "items": [
+            { "id": "flash-1", "title": "快讯一", "url": "https://example.com/flash", "pubDate": 1710000000, "extra": { "hover": "快讯摘要" } }
+          ]
+        }
+        """));
+        IContentSourceClient client = new NewsNowClient(new HttpClient(handler), Config(newsNowBaseUrl: "https://news.local"), NullLoggerFactory.Instance);
+
+        var items = await client.FetchAsync(Source(ContentKind.FlashFeed, provider: SourceProviders.NewsNow, externalId: "flash-a"), CancellationToken.None);
+
+        var item = Assert.Single(items);
+        Assert.Equal("https://news.local/api/s?id=flash-a", handler.Requests.Single().RequestUri?.ToString());
+        Assert.Equal(ContentKind.FlashFeed, item.ContentKind);
+        Assert.Null(item.Rank);
+        Assert.Null(item.SourceListSize);
+        Assert.Equal(DateTimeOffset.FromUnixTimeSeconds(1710000000), item.PublishedAt);
+        Assert.Equal("快讯摘要", item.SummaryText);
+    }
+
+    [Fact]
     public async Task DailyHotApiClient_RankedNews_ParsesItemsAndRequestUri()
     {
         var handler = new TestHttpMessageHandler(_ => TestHttpMessageHandler.Json(HttpStatusCode.OK, """
