@@ -1,10 +1,10 @@
 # PROJECT KNOWLEDGE BASE
 
-**Updated:** 2026-05-29 CST
+**Updated:** 2026-06-02 CST
 **Branch:** master
 
 ## OVERVIEW
-TrendReporter2 is a .NET 8 personal opinion-trend analyzer. It fetches ranked news from NewsNow, stores PostgreSQL-backed history, enriches weak items, merges items into event aggregates, scores event importance, pushes notable events, and sends scheduled digests.
+TrendReporter2 is a .NET 8 personal opinion-trend analyzer. It fetches ranked news from NewsNow, stores PostgreSQL-backed history, enriches weak items, merges items into event aggregates, scores event importance, pushes notable events, and sends scheduled digests. V2M0-V2M5 are complete: V2M0/V2M1 migrated the main path to PostgreSQL, V2M2 added run/stage/LLM telemetry, V2M3 introduced the source registry with NewsNow and DailyHotApi (ranked + flash), V2M4 added tag/event_tag and static HTML reports, and V2M5 added pgvector candidate recall (content_embedding/event_embedding, EmbeddingClient, vector recall merged with rule recall via `CompositeEventCandidateService`; rule recall is the fallback).
 
 ## STRUCTURE
 ```text
@@ -21,7 +21,9 @@ TrendReporter2/
 └── src/
     ├── TrendReporter2.App/       # executable, CLI modes, scheduling
     ├── TrendReporter2.Core/      # config, contracts, domain models, core rules
+    │   └── Embeddings/           # embedding contracts, text builder, EmbeddingService
     └── TrendReporter2.Infrastructure/ # PostgreSQL, YAML, HTTP, LLM, push adapters
+        └── Llm/                  # Cluster/Judge/Tagging/Embedding OpenAI-compatible clients
 ```
 
 Dependency direction is fixed:
@@ -43,8 +45,12 @@ Tests -> App/Core/Infrastructure
 | Config schema | `src/TrendReporter2.Core/Configuration/AppConfig.cs` | Strong typed YAML model and defaults. |
 | Config validation | `src/TrendReporter2.Core/Configuration/AppConfigValidator.cs` | Required fields, ratios, times, timezone. |
 | Event matching/scoring | `src/TrendReporter2.Core/Events/` | Matching, scoring, blacklisting, digest candidate rules, app state contract. |
+| Event candidate recall (rule + vector) | `src/TrendReporter2.Core/Events/EventCandidateService.cs`, `VectorEventCandidateService.cs` | `EventCandidateService` does rule recall; `CompositeEventCandidateService` merges rule + vector recall, with rule recall as the fallback when vector recall fails. |
 | Enrichment policy/adapters | `src/TrendReporter2.Core/Enrichment/`, `src/TrendReporter2.Infrastructure/Enrichment/` | Weak-title policy, WebExtract calls, cooldowns, budgets. |
-| PostgreSQL migrations / persistence | `src/TrendReporter2.Infrastructure/Persistence/` | SQL migrations, IDs, dedup keys, repository queries, app state persistence. |
+| Embedding contracts, text builder, run service | `src/TrendReporter2.Core/Embeddings/EmbeddingContracts.cs` | `IEmbeddingClient`, `IEmbeddingRepository`, `IEmbeddingService`, `EmbeddingTextBuilder`; content/event text composition and SHA-256 source-text hash for change detection. |
+| Embedding adapter | `src/TrendReporter2.Infrastructure/Llm/EmbeddingClient.cs` | OpenAI-compatible `/v1/embeddings` client; retries up to 3 times, records `llm_usage.stage = embedding`, failure does not fail the fetch run. |
+| Embedding repository | `src/TrendReporter2.Infrastructure/Persistence/PostgresEmbeddingRepository.cs` | Upsert `content_embedding`/`event_embedding`, hash-based skip, pgvector cosine similarity recall against recent and archive events. |
+| PostgreSQL migrations / persistence | `src/TrendReporter2.Infrastructure/Persistence/` | SQL migrations, IDs, dedup keys, repository queries, app state persistence. `0007_embeddings.sql` adds `content_embedding`/`event_embedding` plus HNSW cosine index on `event_embedding`. |
 | HTTP NewsNow adapter | `src/TrendReporter2.Infrastructure/News/NewsNowClient.cs` | Calls `GET /api/s?id=source`. |
 | NewsNow enrichment diagnostic | `tools/newsnow_fetch_test/` | Python venv helper; reads `sources.txt` and `.env`, tests HoverText/WebExtract/title length for configurable items per source. |
 | LLM adapters | `src/TrendReporter2.Infrastructure/Llm/` | OpenAI-compatible chat completions; JSON-only responses. |
@@ -64,8 +70,19 @@ Tests -> App/Core/Infrastructure
 | `EventBlacklistPolicy` | policy | `Core/Events/EventBlacklistPolicy.cs` | Applies configured blacklist keywords to events. |
 | `IEventRepository` | contract | `Core/Events/EventContracts.cs` | Event, score, push-log, digest candidate persistence boundary. |
 | `IAppStateRepository` | contract | `Core/Events/EventContracts.cs` | App state persistence boundary for digest idempotency. |
+| `IEventCandidateService` | contract | `Core/Events/EventContracts.cs` | Candidate recall boundary; `CompositeEventCandidateService` is the registered implementation. |
+| `EventCandidateService` | service | `Core/Events/EventCandidateService.cs` | Rule-based candidate recall used by the composite service and as the vector-failure fallback. |
+| `VectorEventCandidateService` | service | `Core/Events/VectorEventCandidateService.cs` | pgvector cosine-similarity recall; no-ops when `llm.embedding` is not configured. |
+| `CompositeEventCandidateService` | service | `Core/Events/VectorEventCandidateService.cs` | Merges rule and vector candidates, dedupes, sorts, hard-filters, and caps at `analysis.event.candidateLimit`. |
 | `PostgresEventRepository` | repository | `Infrastructure/Persistence/PostgresEventRepository.cs` | PostgreSQL event, score, push-log, and digest candidate persistence. |
 | `PostgresFetchRunRepository` | repository | `Infrastructure/Persistence/PostgresFetchRunRepository.cs` | PostgreSQL fetch-run persistence and app-state repository implementation. |
+| `IEmbeddingClient` | contract | `Core/Embeddings/EmbeddingContracts.cs` | Embedding API boundary; `IsConfigured` short-circuits when `llm.embedding` is missing. |
+| `IEmbeddingRepository` | contract | `Core/Embeddings/EmbeddingContracts.cs` | Content/event embedding persistence and pgvector recall boundary. |
+| `IEmbeddingService` | contract | `Core/Embeddings/EmbeddingContracts.cs` | Run-scoped content and event embedding generation boundary. |
+| `EmbeddingService` | service | `Core/Embeddings/EmbeddingContracts.cs` | Generates per-run content/event embeddings, bounded by `System.MaxParallelLlm` and `llm.embedding.maxRequestsPerRun`. |
+| `EmbeddingTextBuilder` | helper | `Core/Embeddings/EmbeddingContracts.cs` | Builds content/event embedding text and SHA-256 source-text hash for change detection. |
+| `PostgresEmbeddingRepository` | repository | `Infrastructure/Persistence/PostgresEmbeddingRepository.cs` | Upsert `content_embedding`/`event_embedding`, hash-based skip, pgvector cosine similarity recall against recent and archive events. |
+| `EmbeddingClient` | adapter | `Infrastructure/Llm/EmbeddingClient.cs` | OpenAI-compatible `/v1/embeddings` client; retries up to 3 times, records `llm_usage.stage = embedding`. |
 | `ClusterLlmClient` | adapter | `Infrastructure/Llm/ClusterLlmClient.cs` | Event-cluster LLM decision adapter. |
 | `JudgeLlmClient` | adapter | `Infrastructure/Llm/JudgeLlmClient.cs` | Event importance judge LLM adapter. |
 
@@ -78,6 +95,9 @@ Tests -> App/Core/Infrastructure
 - `config.yaml` is local and ignored; keep committed examples in `config.example.yaml`.
 - YAML uses camelCase binding, but `YamlAppConfigLoader` rewrites legacy `web_extract_url` to `webExtractUrl`.
 - Concurrency is config-backed (`MaxParallelFetch`, `MaxParallelEnrichment`, `MaxParallelLlm`) with `SemaphoreSlim`.
+- Embedding dimensions are currently fixed at 1536 by `AppConfigValidator`; mismatched vectors fail the embedding upsert path. pgvector `vector_cosine_ops` is the only HNSW operator currently used (on `event_embedding`).
+- Embedding generation, vector recall, and the embedding LLM client must not fail the fetch run: failures degrade to empty results / rule-only recall / neutral outcomes.
+- `CompositeEventCandidateService` always invokes rule recall first and catches vector-recall exceptions, then dedupes by `Event.Id`, picks the max score, unions matched features, and caps at `analysis.event.candidateLimit`.
 
 ## ANTI-PATTERNS (THIS PROJECT)
 - Do not commit real API keys, push secrets, local `config.yaml`, or runtime `data/` files.
@@ -93,6 +113,7 @@ Tests -> App/Core/Infrastructure
 - `Program.cs` loads config before host construction, then either runs one-shot modes or starts Generic Host.
 - `tools/newsnow_fetch_test/` is standalone Python: use venv + `requirements.txt`; keep local `.env` and `.venv/` ignored.
 - V1M0-V1M6 are complete; scheduled digest is implemented by `DigestJob` and `DigestSchedulerService`.
+- V2M0-V2M5 are complete: V2M0/V2M1 PostgreSQL main path, V2M2 telemetry, V2M3 source registry, V2M4 tags and static reports, V2M5 pgvector candidate recall.
 
 ## COMMANDS
 ```bash
@@ -113,3 +134,4 @@ cd tools/newsnow_fetch_test && python3 -m venv .venv && source .venv/bin/activat
 - Validation baseline is build, tests, and `validate --config config.example.yaml`.
 - Root `.gitignore` excludes `.sisyphus`, `config.yaml`, `bin/`, `obj/`, `data/`, and tool-local `.env` / `.venv` paths.
 - `docs/tech_stack.md` is partly stale: it still mentions older milestone names like Tavily, but the current code uses WebExtract naming.
+- Several nested `AGENTS.md` files under `src/TrendReporter2.Core/`, `src/TrendReporter2.Core/Events/`, `src/TrendReporter2.Infrastructure/`, `src/TrendReporter2.Infrastructure/Llm/`, and `src/TrendReporter2.Infrastructure/Persistence/` are out of date for V2M5 and do not yet mention embedding/vector recall entries.
