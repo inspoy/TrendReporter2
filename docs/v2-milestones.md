@@ -25,7 +25,7 @@
 | 已完成 | `V2M4` | Tag 与静态报告 | 实现 tag/event_tag，生成静态 HTML 摘要报告 |
 | 已完成 | `V2M5` | pgvector 候选召回 | 接入 embedding 表、向量索引和 vector recall，规则召回保底 |
 | 已完成 | `V2M6` | 二次归并 | 合并拆分过细的事件，保留 lineage 和 evidence |
-| 待开始 | `V2M7` | Dashboard/Grafana 可选增强 | 基于 PostgreSQL 提供运行健康和历史查询视图 |
+| 已完成 | `V2M7` | Dashboard/Grafana 可选增强 | 基于 PostgreSQL 提供运行健康和历史查询视图 |
 | 待开始 | `V2M8` | 稳定化、文档与回归 | 补齐测试、运行说明、回归样本和调参记录 |
 
 ## 3. 里程碑详情
@@ -747,47 +747,82 @@
 
 ### 目标
 
-在 V2 主链路稳定后，基于 PostgreSQL 提供可选的运行健康和历史趋势查看能力。此里程碑不是 V2 早期要求。
+在 V2 主链路稳定后，基于 PostgreSQL 现有 telemetry 数据（`fetch_run`、`fetch_run_source`、`fetch_run_stage`、`llm_usage`）以及事件/评分/推送/标签表，通过 SQL view 和可选 Grafana 提供运行健康与历史趋势查看能力。View 通过 migration runner 管理，不引入额外进程或状态表。
+
+此里程碑不是 V2 早期要求，也不属于 V2 完成定义。
 
 ### 交付物
 
-- Grafana 查询视图或 SQL 示例
-- 可选只读 dashboard spike
-- 运行健康指标说明
+- `0009_monitoring_views.sql` migration 文件，在 `metrics` schema 下创建只读视图
+- `docs/grafana.md` Grafana 接入与告警建议
+- 不新增 `.cs` 文件、不引入动态 Web Dashboard
 
 ### 任务清单
 
-#### `V2M7-T1` 定义指标视图
+#### `V2M7-T1` 创建监控视图 migration 与命名规范
 
-- fetch run 成功率
-- 每源失败率
-- LLM token 和成本趋势
-- 每日事件数
-- 推送次数
-- 重要事件分数分布
+- 创建 `src/TrendReporter2.Infrastructure/Persistence/Migrations/0009_monitoring_views.sql`
+- 执行 `CREATE SCHEMA IF NOT EXISTS metrics` 并将所有视图放在该 schema 下
+- 视图命名规范：`metrics.run_*`（运行健康）、`metrics.llm_*`（LLM 成本）、`metrics.event_*`（事件与内容）
+- 每个视图创建前执行 `DROP VIEW IF EXISTS metrics.<name> CASCADE`，后续可直接 `CREATE OR REPLACE VIEW` 迭代
+- 不修改任何业务表的写入路径
 
-#### `V2M7-T2` 创建 SQL view
+#### `V2M7-T2` 实现运行健康视图
 
-- 为 Grafana 提供稳定查询 view
-- 不改变主业务表写入路径
-- 不引入额外状态
+基于 `fetch_run`、`fetch_run_source`、`fetch_run_stage` 创建以下视图：
 
-#### `V2M7-T3` 编写 Grafana 接入说明
+- `metrics.run_success_rate`：按 `date(finished_at)` 聚合 run 总数、成功数、partial 数、失败数、成功率（`succeeded` + `partial` 视为可用），以及当日 `estimated_llm_cost` 汇总。窗口取最近 30 天 `finished_at`。
+- `metrics.run_source_failure_rate`：按 `source_id` + `date(created_at)` 聚合每源抓取次数、成功次数、失败次数、失败率。关联 `source` 表获取 `provider`、`display_name`、`content_kind`。
+- `metrics.run_stage_duration`：按 `stage` + `date(started_at)` 聚合 `avg(duration_ms)`、`percentile_cont(0.5)`（P50）、`percentile_cont(0.95)`（P95）、`count(*)`。窗口取最近 30 天，排除 `status = 'skipped'` 的记录。
 
-- 数据源配置
-- 推荐面板
-- 常用时间范围
-- 成本和失败率告警建议
+#### `V2M7-T3` 实现 LLM 成本视图
 
-#### `V2M7-T4` 评估动态 Dashboard
+基于 `llm_usage` 创建以下视图：
 
-- 只做 spike 或设计说明
-- 评估 tag 云、事件检索、source 过滤、事件详情页
-- 不引入登录、多用户或复杂权限作为 V2 必选项
+- `metrics.llm_daily_cost`：按 `stage` + `model` + `date(created_at)` 聚合 `sum(input_tokens)`、`sum(output_tokens)`、`sum(cache_read_tokens)`、`sum(estimated_cost)`、调用次数 `count(*)`、`avg(duration_ms)`。
+- `metrics.llm_cost_trend_7d`：按 `date(created_at)` 聚合最近 7 天的每日总 `estimated_cost` 和总调用次数，用于成本趋势折线图。
+- `metrics.llm_stage_cost_pct`：按 `stage` 聚合全部历史 `estimated_cost` 的累计值和占比（`cluster`、`judge`、`tagging`、`embedding`），用于饼图或堆叠柱状图。
+
+#### `V2M7-T4` 实现事件与内容视图
+
+基于 `event`、`event_score_snapshot`、`push_log`、`tag`、`event_tag` 创建以下视图：
+
+- `metrics.event_daily_counts`：按 `date(first_seen_at)` 聚合每日新建事件数；按 `date(last_pushed_at)` 聚合每日推送事件数（去重 `event_id`）；按 `date(pushed_at)` 从 `push_log` 聚合每日推送次数（`push_type = 'Instant'` vs `'Digest'`）。排除 `event.status = 'Merged'` 的事件。
+- `metrics.event_score_distribution`：找到最近一个 `fetch_run` 的 `event_score_snapshot` 记录，按分数分段统计事件数：`0-30`、`30-60`、`60-80`、`80-100`（`total_score` 字段）。排除 `event.is_blacklisted = true` 和 `event.status = 'Merged'` 的事件。
+- `metrics.event_tag_distribution`：按 `tag.category` + `tag.name` 聚合关联事件数（去重 `event_tag.event_id`），排除 `event.status = 'Merged'` 的事件。用于 tag 云或条形图展示。
+
+#### `V2M7-T5` 实现综合看板视图
+
+- `metrics.latest_run_summary`：查询最新一条 `fetch_run`（按 `started_at desc`），返回 `status`、`source_count`、`success_source_count`、`failure_source_count`、`fetched_item_count`、`matched_event_count`、`pushed_event_count`、`estimated_llm_cost`、`extract(epoch from (finished_at - started_at)) / 60` 作为 `duration_minutes`、`started_at`、`finished_at`。关联 `fetch_run_stage` 获取各 stage 的 `duration_ms` 并列展示（如 `fetch_duration_ms`、`match_duration_ms` 等）。
+- `metrics.health_snapshot_7d`：滚动 7 天窗口聚合：运行成功率（`succeeded + partial` / 总数）、日均 LLM 成本、日均事件数、日均推送数、平均 `fetch_run` 总耗时（分钟）。
+- 这两个视图面向单行"一切正常"型仪表板，方便 Grafana stat/table 面板直接消费。
+
+#### `V2M7-T6` 编写 Grafana 接入文档
+
+在 `docs/grafana.md` 中输出：
+
+- **数据源配置**：PostgreSQL 连接串示例、`metrics` schema 设为默认 search path
+- **推荐面板**（每个面板附 SQL 查询和 Grafana 面板类型）：
+  - Run Success Rate — 时间序列（`metrics.run_success_rate`），阈值线 80%，红/绿着色
+  - Per-Source Failure Rate — 按 source 分面的时间序列（`metrics.run_source_failure_rate`）
+  - LLM Daily Cost — 折线图（`metrics.llm_cost_trend_7d`）
+  - LLM Cost by Stage — 堆叠柱状图或饼图（`metrics.llm_stage_cost_pct`）
+  - Stage Duration P50/P95 — 按 stage 分面的时间序列（`metrics.run_stage_duration`）
+  - Event Score Distribution — 仪表盘或柱状图（`metrics.event_score_distribution`）
+  - Daily Events / Pushes — 双轴时间序列（`metrics.event_daily_counts`）
+  - Latest Run Summary — 表格/stat 面板（`metrics.latest_run_summary`）
+- **告警建议**：
+  - 连续 3 次 `fetch_run` 成功率 <80% 时告警
+  - 每日 LLM 成本超过前 7 天平均值的 2 倍时告警
+  - 单 source 连续 3 次抓取全部失败时告警
 
 ### 验收标准
 
-- 可以通过 SQL 或 Grafana 查看运行健康度和成本趋势
+- `0009_monitoring_views.sql` 可通过 migration runner 执行且幂等（重复执行不报错）
+- 所有 `metrics.*` 视图在空数据库（无 run 数据）上查询不报错，返回空结果或合理默认值
+- 至少 `metrics.latest_run_summary` 和 `metrics.run_success_rate` 在有数据时可返回正确结果
+- `docs/grafana.md` 包含数据源配置、面板 SQL 和告警阈值建议
+- 不新增 `.cs` 文件、不引入动态 Web Dashboard、不引入额外状态表
 - Dashboard 仍是可选增强，不影响 V2 主链路完成定义
 
 ### 3.9 `V2M8` 稳定化、文档与回归
