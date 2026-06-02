@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Newtonsoft.Json.Linq;
 using TrendReporter2.Core.Configuration;
 using TrendReporter2.Core.Content;
+using TrendReporter2.Core.Embeddings;
 using TrendReporter2.Core.Enrichment;
 using TrendReporter2.Core.Events;
 using TrendReporter2.Core.Observability;
@@ -346,6 +347,71 @@ public sealed class InfrastructureAdapterTests
     }
 
     [Fact]
+    public async Task EmbeddingClient_ParsesVectorAndRecordsUsage()
+    {
+        var handler = new TestHttpMessageHandler(_ => TestHttpMessageHandler.Json(HttpStatusCode.OK, $$"""
+        {
+          "id": "emb-1",
+          "data": [ { "embedding": {{VectorJson(0.1f, 0.2f, 0.3f)}} } ],
+          "usage": { "prompt_tokens": 1000 }
+        }
+        """));
+        var recorder = new TestTelemetryRecorder();
+        var client = new EmbeddingClient(new HttpClient(handler), ConfigWithLlm(), NullLoggerFactory.Instance, recorder);
+
+        var result = await client.EmbedAsync(new EmbeddingRequest("run-1", "ci-1", null, "标题 摘要"), CancellationToken.None);
+
+        Assert.True(result.Success);
+        Assert.Equal([0.1f, 0.2f, 0.3f], result.Embedding);
+        Assert.Equal("https://llm.local/v1/embeddings", handler.Requests.Single().RequestUri?.ToString());
+        var usage = Assert.Single(recorder.LlmUsage);
+        Assert.Equal(LlmUsageStages.Embedding, usage.Stage);
+        Assert.Equal("embedding-model", usage.Model);
+        Assert.Equal("run-1", usage.RunId);
+        Assert.Equal("ci-1", usage.ContentItemId);
+        Assert.Equal("emb-1", usage.RequestId);
+        Assert.Equal(1000, usage.InputTokens);
+        Assert.True(usage.Success);
+        Assert.Equal(0.001m, usage.EstimatedCost);
+    }
+
+    [Fact]
+    public async Task EmbeddingClient_UnconfiguredFailuresAndWrongDimensionsReturnUnsuccessfulResult()
+    {
+        var unconfiguredHandler = new TestHttpMessageHandler(_ => TestHttpMessageHandler.Json(HttpStatusCode.OK, "{}"));
+        var unconfigured = new EmbeddingClient(new HttpClient(unconfiguredHandler), Config(), NullLoggerFactory.Instance);
+
+        var unconfiguredResult = await unconfigured.EmbedAsync(new EmbeddingRequest("run-1", "ci-1", null, "文本"), CancellationToken.None);
+
+        Assert.False(unconfiguredResult.Success);
+        Assert.Empty(unconfiguredHandler.Requests);
+
+        var failureHandler = new TestHttpMessageHandler(_ => TestHttpMessageHandler.Json(HttpStatusCode.BadGateway, "bad gateway"));
+        var failureRecorder = new TestTelemetryRecorder();
+        var failing = new EmbeddingClient(new HttpClient(failureHandler), ConfigWithLlm(), NullLoggerFactory.Instance, failureRecorder);
+
+        var failureResult = await failing.EmbedAsync(new EmbeddingRequest("run-1", "ci-1", null, "文本"), CancellationToken.None);
+
+        Assert.False(failureResult.Success);
+        Assert.Equal(4, failureHandler.Requests.Count);
+        var failureUsage = Assert.Single(failureRecorder.LlmUsage);
+        Assert.Equal(LlmUsageStages.Embedding, failureUsage.Stage);
+        Assert.False(failureUsage.Success);
+        Assert.Equal("HTTP 502", failureUsage.Error);
+        Assert.Equal(3, failureUsage.RetryCount);
+
+        var wrongDimensionHandler = new TestHttpMessageHandler(_ => TestHttpMessageHandler.Json(HttpStatusCode.OK, $$"""
+        { "id": "emb-bad", "data": [ { "embedding": {{VectorJson(0.1f, 0.2f)}} } ], "usage": { "prompt_tokens": 10 } }
+        """));
+        var wrongDimension = new EmbeddingClient(new HttpClient(wrongDimensionHandler), ConfigWithLlm(), NullLoggerFactory.Instance);
+
+        var wrongDimensionResult = await wrongDimension.EmbedAsync(new EmbeddingRequest("run-1", null, "ev-1", "文本"), CancellationToken.None);
+
+        Assert.False(wrongDimensionResult.Success);
+        Assert.Contains("维度不匹配", wrongDimensionResult.Error);
+    }
+
+    [Fact]
     public async Task JudgeLlmClient_RecordsFinalFailureAfterRetries()
     {
         var handler = new TestHttpMessageHandler(_ => TestHttpMessageHandler.Json(HttpStatusCode.BadGateway, "bad gateway"));
@@ -418,9 +484,19 @@ public sealed class InfrastructureAdapterTests
                     BaseUrl = "https://llm.local",
                     Model = "tag-model",
                     Pricing = new LLmPricingConfig { Input = 1, Output = 1, CacheRead = 1 }
+                },
+                Embedding = new EmbeddingLlmConfig
+                {
+                    BaseUrl = "https://llm.local",
+                    Model = "embedding-model",
+                    Dimensions = 3,
+                    Pricing = new LLmPricingConfig { Input = 1, Output = 1, CacheRead = 1 }
                 }
             }
         };
+
+    private static string VectorJson(params float[] values)
+        => "[" + string.Join(',', values.Select(value => value.ToString(System.Globalization.CultureInfo.InvariantCulture))) + "]";
 
     private sealed class TestTelemetryRecorder : IRunTelemetryRecorder
     {

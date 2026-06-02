@@ -75,6 +75,20 @@ llm:
       cacheRead: 0
       input: 0
       output: 0
+  embedding:
+    baseUrl: ""
+    apiKey: ""
+    model: "text-embedding-3-small"
+    maxTokens: 8192
+    pricing:
+      cacheRead: 0
+      input: 0
+      output: 0
+    version: "v1"
+    dimensions: 1536
+    maxRequestsPerRun: 50
+    vectorSimilarityThreshold: 0.78
+    vectorCandidateLimit: 10
 
 enrichment:
   webExtractUrl: "" # 自定义的web页抓取服务

@@ -66,6 +66,7 @@ public static class RunStageNames
     public const string Push = "push";
     public const string Report = "report";
     public const string Tagging = "tagging";
+    public const string Embedding = "embedding";
 }
 
 public static class LlmUsageStages

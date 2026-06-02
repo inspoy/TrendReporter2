@@ -122,6 +122,8 @@ public sealed class LlmConfig
     public LlmEndpointConfig Judge { get; init; } = new();
 
     public LlmEndpointConfig Tagging { get; init; } = new();
+
+    public EmbeddingLlmConfig Embedding { get; init; } = new();
 }
 
 public sealed class LlmEndpointConfig
@@ -144,6 +146,29 @@ public sealed class LLmPricingConfig
     public float Input { get; init; } = 0;
 
     public float Output { get; init; } = 0;
+}
+
+public sealed class EmbeddingLlmConfig
+{
+    public string BaseUrl { get; init; } = string.Empty;
+
+    public string ApiKey { get; init; } = string.Empty;
+
+    public string Model { get; init; } = string.Empty;
+
+    public int MaxTokens { get; init; } = 8192;
+
+    public LLmPricingConfig Pricing { get; init; } = new();
+
+    public string Version { get; init; } = "v1";
+
+    public int Dimensions { get; init; } = 1536;
+
+    public int MaxRequestsPerRun { get; init; } = 50;
+
+    public double VectorSimilarityThreshold { get; init; } = 0.78;
+
+    public int VectorCandidateLimit { get; init; } = 10;
 }
 
 public sealed class EnrichmentConfig

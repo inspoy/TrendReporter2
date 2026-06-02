@@ -3,6 +3,7 @@ using Dapper;
 using Npgsql;
 using TrendReporter2.Core.Configuration;
 using TrendReporter2.Core.Content;
+using TrendReporter2.Core.Embeddings;
 using TrendReporter2.Core.Enrichment;
 using TrendReporter2.Core.Events;
 using TrendReporter2.Core.Fetch;
@@ -44,6 +45,7 @@ public static class DependencyInjection
         services.AddSingleton<IContentIngestService>(static serviceProvider => serviceProvider.GetRequiredService<PostgresContentRepository>());
         services.AddSingleton<IEnrichmentService, EnrichmentService>();
         services.AddSingleton<IEventRepository, PostgresEventRepository>();
+        services.AddSingleton<IEmbeddingRepository, PostgresEmbeddingRepository>();
         services.AddSingleton<ITagRepository, PostgresTagRepository>();
         services.AddSingleton<PostgresReportRepository>();
         services.AddSingleton<IReportReadModelQuery>(static serviceProvider => serviceProvider.GetRequiredService<PostgresReportRepository>());
@@ -52,7 +54,10 @@ public static class DependencyInjection
         services.AddSingleton<IAppStateRepository, PostgresAppStateRepository>();
         services.AddSingleton<IFetchRunRepository, PostgresFetchRunRepository>();
         services.AddSingleton<IRunTelemetryRecorder, PostgresRunTelemetryRecorder>();
-        services.AddSingleton<IEventCandidateService, EventCandidateService>();
+        services.AddSingleton<IEmbeddingService, EmbeddingService>();
+        services.AddSingleton<EventCandidateService>();
+        services.AddSingleton<VectorEventCandidateService>();
+        services.AddSingleton<IEventCandidateService, CompositeEventCandidateService>();
         services.AddSingleton<IEventMatcher, EventMatcher>();
         services.AddSingleton<IEventScoringService, EventScoringService>();
 

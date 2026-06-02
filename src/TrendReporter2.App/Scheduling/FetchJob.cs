@@ -4,6 +4,7 @@ using System.Text;
 using Microsoft.Extensions.Logging;
 using TrendReporter2.Core.Configuration;
 using TrendReporter2.Core.Content;
+using TrendReporter2.Core.Embeddings;
 using TrendReporter2.Core.Enrichment;
 using TrendReporter2.Core.Events;
 using TrendReporter2.Core.Fetch;
@@ -22,6 +23,7 @@ public sealed class FetchJob : IFetchJob
     private readonly IReadOnlyDictionary<string, IContentSourceClient> _contentSourceClients;
     private readonly IContentIngestService _contentIngestService;
     private readonly IEnrichmentService _enrichmentService;
+    private readonly IEmbeddingService _embeddingService;
     private readonly IEventMatcher _eventMatcher;
     private readonly IEventRepository _eventRepository;
     private readonly IEventScoringService _eventScoringService;
@@ -38,6 +40,7 @@ public sealed class FetchJob : IFetchJob
         IEnumerable<IContentSourceClient> contentSourceClients,
         IContentIngestService contentIngestService,
         IEnrichmentService enrichmentService,
+        IEmbeddingService embeddingService,
         IEventMatcher eventMatcher,
         IEventRepository eventRepository,
         IEventScoringService eventScoringService,
@@ -55,6 +58,7 @@ public sealed class FetchJob : IFetchJob
             .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
         _contentIngestService = contentIngestService;
         _enrichmentService = enrichmentService;
+        _embeddingService = embeddingService;
         _eventMatcher = eventMatcher;
         _eventRepository = eventRepository;
         _eventScoringService = eventScoringService;
@@ -116,6 +120,21 @@ public sealed class FetchJob : IFetchJob
                 enrichmentResult = new EnrichmentRunResult(0, 0, 0, 1, 0);
             }
 
+            EmbeddingRunResult contentEmbeddingResult;
+            try
+            {
+                contentEmbeddingResult = await RecordStageAsync(
+                    fetchRun.Id,
+                    RunStageNames.Embedding,
+                    () => GenerateContentEmbeddingsAsync(fetchRun.Id, DateTimeOffset.UtcNow, cancellationToken),
+                    cancellationToken);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                _logger.LogWarning(ex, "内容 embedding 生成失败，运行编号={RunId}；抓取流程将继续。", fetchRun.Id);
+                contentEmbeddingResult = new EmbeddingRunResult(0, 0, 0, 0);
+            }
+
             EventMatchRunResult eventMatchResult;
             try
             {
@@ -142,6 +161,20 @@ public sealed class FetchJob : IFetchJob
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 _logger.LogWarning(ex, "标签生成失败，运行编号={RunId}；抓取流程将继续。", fetchRun.Id);
+            }
+
+            try
+            {
+                var remainingEmbeddingBudget = Math.Max(0, _config.Llm.Embedding.MaxRequestsPerRun - contentEmbeddingResult.CandidateCount);
+                await RecordStageAsync(
+                    fetchRun.Id,
+                    RunStageNames.Embedding,
+                    () => GenerateEventEmbeddingsAsync(fetchRun.Id, DateTimeOffset.UtcNow, remainingEmbeddingBudget, cancellationToken),
+                    cancellationToken);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                _logger.LogWarning(ex, "事件 embedding 生成失败，运行编号={RunId}；抓取流程将继续。", fetchRun.Id);
             }
 
             EventScoringRunResult scoringResult;
@@ -226,6 +259,19 @@ public sealed class FetchJob : IFetchJob
         DateTimeOffset now,
         CancellationToken cancellationToken)
         => _eventMatcher.MatchRunAsync(runId, now, cancellationToken);
+
+    private Task<EmbeddingRunResult> GenerateContentEmbeddingsAsync(
+        string runId,
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
+        => _embeddingService.GenerateContentEmbeddingsAsync(runId, now, _config.Llm.Embedding.MaxRequestsPerRun, cancellationToken);
+
+    private Task<EmbeddingRunResult> GenerateEventEmbeddingsAsync(
+        string runId,
+        DateTimeOffset now,
+        int maxRequests,
+        CancellationToken cancellationToken)
+        => _embeddingService.GenerateEventEmbeddingsAsync(runId, now, maxRequests, cancellationToken);
 
     private async Task<int> TagRunAsync(string runId, DateTimeOffset now, CancellationToken cancellationToken)
     {

@@ -89,7 +89,19 @@ public sealed class AppConfigValidatorTests
             {
                 Cluster = new LlmEndpointConfig { Pricing = new LLmPricingConfig { CacheRead = -1 } },
                 Judge = new LlmEndpointConfig { Pricing = new LLmPricingConfig { Input = -1 } },
-                Tagging = new LlmEndpointConfig { Pricing = new LLmPricingConfig { Output = -1 } }
+                Tagging = new LlmEndpointConfig { Pricing = new LLmPricingConfig { Output = -1 } },
+                Embedding = new EmbeddingLlmConfig
+                {
+                    BaseUrl = "https://llm.local",
+                    Model = "",
+                    MaxTokens = 0,
+                    Pricing = new LLmPricingConfig { Input = -1 },
+                    Version = "",
+                    Dimensions = 0,
+                    MaxRequestsPerRun = -1,
+                    VectorSimilarityThreshold = 1.5,
+                    VectorCandidateLimit = 0
+                }
             },
             Enrichment = new EnrichmentConfig
             {
@@ -117,9 +129,55 @@ public sealed class AppConfigValidatorTests
         Assert.Contains("llm.cluster.pricing.cacheRead 必须是有限且非负的数字。", exception.Errors);
         Assert.Contains("llm.judge.pricing.input 必须是有限且非负的数字。", exception.Errors);
         Assert.Contains("llm.tagging.pricing.output 必须是有限且非负的数字。", exception.Errors);
+        Assert.Contains("llm.embedding.model 不能为空。", exception.Errors);
+        Assert.Contains("llm.embedding.dimensions 当前必须为 1536。", exception.Errors);
+        Assert.Contains("llm.embedding.pricing.input 必须是有限且非负的数字。", exception.Errors);
         Assert.Contains("enrichment.maxRequestsPerRun 不能为负数。", exception.Errors);
         Assert.Contains("system.maxParallelFetch 必须大于 0。", exception.Errors);
         Assert.Contains("system.timeZone 'Invalid/Zone' 在当前系统上未找到。", exception.Errors);
+    }
+
+    [Fact]
+    public void Validate_AllowsDefaultEmbeddingConfigAndRejectsInvalidEmbeddingSettings()
+    {
+        AppConfigValidator.Validate(ValidConfig());
+
+        var baseConfig = ValidConfig();
+        var config = new AppConfig
+        {
+            Sources = baseConfig.Sources,
+            Database = baseConfig.Database,
+            Analysis = baseConfig.Analysis,
+            Llm = new LlmConfig
+            {
+                Cluster = baseConfig.Llm.Cluster,
+                Judge = baseConfig.Llm.Judge,
+                Tagging = baseConfig.Llm.Tagging,
+                Embedding = new EmbeddingLlmConfig
+                {
+                    BaseUrl = "https://llm.local",
+                    Model = "",
+                    Dimensions = -1,
+                    Version = "",
+                    MaxRequestsPerRun = -1,
+                    VectorSimilarityThreshold = -0.1,
+                    VectorCandidateLimit = 0
+                }
+            },
+            Enrichment = baseConfig.Enrichment,
+            Filters = baseConfig.Filters,
+            Pushers = baseConfig.Pushers,
+            System = baseConfig.System
+        };
+
+        var exception = Assert.Throws<AppConfigValidationException>(() => AppConfigValidator.Validate(config));
+
+        Assert.Contains("llm.embedding.model 不能为空。", exception.Errors);
+        Assert.Contains("llm.embedding.dimensions 当前必须为 1536。", exception.Errors);
+        Assert.Contains("llm.embedding.version 不能为空。", exception.Errors);
+        Assert.Contains("llm.embedding.maxRequestsPerRun 不能为负数。", exception.Errors);
+        Assert.Contains("llm.embedding.vectorSimilarityThreshold 必须在 0 到 1 之间。", exception.Errors);
+        Assert.Contains("llm.embedding.vectorCandidateLimit 必须大于 0。", exception.Errors);
     }
 
     [Fact]

@@ -372,12 +372,17 @@
         "tagging": {
           "$ref": "#/$defs/LlmEndpointConfig",
           "description": "标签生成 LLM — 为缺少 WebExtract tags 的内容补充标签"
+        },
+        "embedding": {
+          "$ref": "#/$defs/EmbeddingLlmConfig",
+          "description": "Embedding 模型 — 为 pgvector 候选召回生成内容和事件向量"
         }
       },
       "required": [
         "cluster",
         "judge",
-        "tagging"
+        "tagging",
+        "embedding"
       ]
     },
     "LlmEndpointConfig": {
@@ -504,6 +509,80 @@
         "minTitleLength",
         "recallWeakScoreThreshold",
         "retryCooldownHours"
+      ]
+    },
+    "EmbeddingLlmConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "baseUrl": {
+          "type": "string",
+          "description": "兼容 OpenAI Embeddings API 的地址，程序自动拼接 /v1/embeddings",
+          "default": ""
+        },
+        "apiKey": {
+          "type": "string",
+          "description": "API Key",
+          "default": ""
+        },
+        "model": {
+          "type": "string",
+          "description": "Embedding 模型名称",
+          "default": ""
+        },
+        "maxTokens": {
+          "type": "integer",
+          "description": "单次 embedding 输入 Token 上限",
+          "default": 8192,
+          "exclusiveMinimum": 0
+        },
+        "pricing": {
+          "$ref": "#/$defs/LLmPricingConfig",
+          "description": "可选 — 每百万 Token 价格，用于成本统计与控制"
+        },
+        "version": {
+          "type": "string",
+          "description": "Embedding 文本构建/模型版本",
+          "default": "v1",
+          "minLength": 1
+        },
+        "dimensions": {
+          "type": "integer",
+          "description": "向量维度，当前迁移固定为 1536",
+          "default": 1536,
+          "const": 1536
+        },
+        "maxRequestsPerRun": {
+          "type": "integer",
+          "description": "每轮 fetch 最多发起的 embedding 请求数",
+          "default": 50,
+          "minimum": 0
+        },
+        "vectorSimilarityThreshold": {
+          "type": "number",
+          "description": "向量召回余弦相似度阈值",
+          "default": 0.78,
+          "minimum": 0,
+          "maximum": 1
+        },
+        "vectorCandidateLimit": {
+          "type": "integer",
+          "description": "向量召回候选事件数量上限",
+          "default": 10,
+          "exclusiveMinimum": 0
+        }
+      },
+      "required": [
+        "baseUrl",
+        "apiKey",
+        "model",
+        "maxTokens",
+        "pricing",
+        "version",
+        "dimensions",
+        "maxRequestsPerRun",
+        "vectorSimilarityThreshold",
+        "vectorCandidateLimit"
       ]
     },
     "FilterConfig": {

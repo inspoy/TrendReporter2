@@ -101,6 +101,21 @@ public sealed class PostgresSchemaMigrationTests
         "ix_report_snapshot_report_type"
     ];
 
+    private static readonly string[] EmbeddingTables =
+    [
+        "content_embedding",
+        "event_embedding"
+    ];
+
+    private static readonly string[] EmbeddingIndexes =
+    [
+        "ix_content_embedding_model_version_dimensions",
+        "ix_content_embedding_source_text_hash",
+        "ix_event_embedding_model_version_dimensions",
+        "ix_event_embedding_source_text_hash",
+        "ix_event_embedding_embedding_hnsw_cosine"
+    ];
+
     [Fact]
     public void InitMigration_DefinesRequiredExtensionTablesAndRunnerCompatibility()
     {
@@ -247,6 +262,33 @@ public sealed class PostgresSchemaMigrationTests
         }
     }
 
+    [Fact]
+    public void EmbeddingMigration_DefinesPgvectorTablesAndHnswCosineIndex()
+    {
+        var normalized = NormalizeSql(File.ReadAllText(Path.Combine(InitMigrationDirectory(), "0007_embeddings.sql")));
+
+        foreach (var table in EmbeddingTables)
+        {
+            Assert.Contains($"create table if not exists {table}", normalized);
+            var body = TableBody(normalized, table);
+            Assert.Contains("model text not null", body);
+            Assert.Contains("version text not null", body);
+            Assert.Contains("dimensions integer not null", body);
+            Assert.Contains("source_text_hash text not null", body);
+            Assert.Contains("embedding vector(1536) not null", body);
+            Assert.Contains("created_at timestamptz not null", body);
+            Assert.Contains("updated_at timestamptz not null", body);
+        }
+
+        Assert.Contains("constraint pk_content_embedding primary key (content_item_id, model, version, dimensions)", normalized);
+        Assert.Contains("constraint pk_event_embedding primary key (event_id, model, version, dimensions)", normalized);
+        Assert.Contains("using hnsw (embedding vector_cosine_ops)", normalized);
+        foreach (var index in EmbeddingIndexes)
+        {
+            Assert.Contains($"create index if not exists {index}", normalized);
+        }
+    }
+
 
     [Fact]
     [Trait("Category", "PostgresIntegration")]
@@ -274,7 +316,7 @@ public sealed class PostgresSchemaMigrationTests
 
             var result = await runner.RunAsync(CancellationToken.None);
 
-            Assert.Equal(new SqlMigrationRunResult(6, 0), result);
+            Assert.Equal(new SqlMigrationRunResult(7, 0), result);
             await using var verifyConnection = await dataSource.OpenConnectionAsync();
             var tables = (await verifyConnection.QueryAsync<string>("""
             select table_name
@@ -300,6 +342,11 @@ public sealed class PostgresSchemaMigrationTests
             }
 
             foreach (var table in TagAndReportTables)
+            {
+                Assert.Contains(table, tables);
+            }
+
+            foreach (var table in EmbeddingTables)
             {
                 Assert.Contains(table, tables);
             }

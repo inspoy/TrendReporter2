@@ -65,6 +65,18 @@ public static class AppConfigValidator
         ValidateLlmPricing("llm.cluster.pricing", config.Llm.Cluster.Pricing);
         ValidateLlmPricing("llm.judge.pricing", config.Llm.Judge.Pricing);
         ValidateLlmPricing("llm.tagging.pricing", config.Llm.Tagging.Pricing);
+        ValidateLlmPricing("llm.embedding.pricing", config.Llm.Embedding.Pricing);
+        if (!string.IsNullOrWhiteSpace(config.Llm.Embedding.BaseUrl) || !string.IsNullOrWhiteSpace(config.Llm.Embedding.ApiKey))
+        {
+            Require(!string.IsNullOrWhiteSpace(config.Llm.Embedding.Model), "llm.embedding.model 不能为空。");
+        }
+
+        Require(config.Llm.Embedding.Dimensions == 1536, "llm.embedding.dimensions 当前必须为 1536。");
+        Require(!string.IsNullOrWhiteSpace(config.Llm.Embedding.Version), "llm.embedding.version 不能为空。");
+        Require(config.Llm.Embedding.MaxTokens > 0, "llm.embedding.maxTokens 必须大于 0。");
+        Require(config.Llm.Embedding.MaxRequestsPerRun >= 0, "llm.embedding.maxRequestsPerRun 不能为负数。");
+        Require(IsRatio(config.Llm.Embedding.VectorSimilarityThreshold), "llm.embedding.vectorSimilarityThreshold 必须在 0 到 1 之间。");
+        Require(config.Llm.Embedding.VectorCandidateLimit > 0, "llm.embedding.vectorCandidateLimit 必须大于 0。");
 
         Require(config.System.MaxParallelFetch > 0, "system.maxParallelFetch 必须大于 0。");
         Require(config.System.MaxParallelEnrichment > 0, "system.maxParallelEnrichment 必须大于 0。");
