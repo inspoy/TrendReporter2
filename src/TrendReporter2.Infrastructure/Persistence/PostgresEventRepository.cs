@@ -1,5 +1,7 @@
 using Dapper;
 using Npgsql;
+using System.Security.Cryptography;
+using System.Text;
 using PostgresException = Npgsql.PostgresException;
 using TrendReporter2.Core.Content;
 using TrendReporter2.Core.Events;
@@ -373,16 +375,119 @@ public sealed class PostgresEventRepository : IEventRepository
         await transaction.CommitAsync(cancellationToken);
     }
 
+    public async Task<IReadOnlyList<EventAggregate>> LoadMergeCandidateEventsAsync(
+        DateTimeOffset now,
+        int historyHours,
+        int archiveRecallDays,
+        CancellationToken cancellationToken)
+    {
+        var activeSince = now.AddHours(-Math.Max(1, historyHours));
+        var staleSince = now.AddDays(-Math.Max(1, archiveRecallDays));
+        await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
+        var rows = await connection.QueryAsync<EventAggregateRow>(new CommandDefinition("""
+        select *
+        from event
+        where status in (@Active, @Stale)
+          and merged_into_event_id is null
+          and is_blacklisted = false
+          and (
+              (status = @Active and last_seen_at >= @ActiveSince)
+              or (status = @Stale and last_seen_at >= @StaleSince)
+          )
+        order by last_seen_at desc, id;
+        """, new
+        {
+            Active = EventStatus.Active,
+            Stale = EventStatus.Stale,
+            ActiveSince = PostgresTimestamp.ToUtc(activeSince),
+            StaleSince = PostgresTimestamp.ToUtc(staleSince)
+        }, cancellationToken: cancellationToken));
+        return rows.Select(ToEventAggregate).ToList();
+    }
+
+    public async Task<IReadOnlyList<EventItem>> LoadActiveEventItemsAsync(string eventId, CancellationToken cancellationToken)
+    {
+        await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
+        var rows = await connection.QueryAsync<EventItemRow>(new CommandDefinition("""
+        select *
+        from event_item
+        where event_id = @EventId
+          and is_active = true
+        order by matched_at, id;
+        """, new { EventId = eventId }, cancellationToken: cancellationToken));
+        return rows.Select(ToEventItem).ToList();
+    }
+
+    public async Task BatchUpdateEventItemActiveStateAsync(IReadOnlyList<string> eventItemIds, bool isActive, CancellationToken cancellationToken)
+    {
+        if (eventItemIds.Count == 0)
+        {
+            return;
+        }
+
+        await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
+        await connection.ExecuteAsync(new CommandDefinition("""
+        update event_item
+        set is_active = @IsActive
+        where id = any(@Ids);
+        """, new { IsActive = isActive, Ids = eventItemIds.ToArray() }, cancellationToken: cancellationToken));
+    }
+
+    public async Task BatchMigrateEventItemsAsync(IReadOnlyList<EventItem> items, string mergeHistoryId, DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        if (items.Count == 0)
+        {
+            return;
+        }
+
+        var rows = items.Select(item => new
+        {
+            Id = BuildEventItemId(item.EventId, item.ContentItemId),
+            DedupKey = BuildDedupKey(item.EventId, item.ContentItemId),
+            item.EventId,
+            item.ContentItemId,
+            item.Confidence,
+            MatchedAt = PostgresTimestamp.ToUtc(item.MatchedAt == default ? now : item.MatchedAt),
+            item.MatchReason,
+            item.IsActive,
+            CreatedByMergeId = mergeHistoryId
+        }).ToList();
+
+        await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
+        await connection.ExecuteAsync(new CommandDefinition("""
+        insert into event_item (id, dedup_key, event_id, content_item_id, confidence, matched_at, match_reason, is_active, created_by_merge_id)
+        values (@Id, @DedupKey, @EventId, @ContentItemId, @Confidence, @MatchedAt, @MatchReason, @IsActive, @CreatedByMergeId)
+        on conflict (content_item_id) do nothing;
+        """, rows, cancellationToken: cancellationToken));
+    }
+
+    public async Task BatchSetEventMergedStatusAsync(IReadOnlyList<string> eventIds, string targetEventId, CancellationToken cancellationToken)
+    {
+        if (eventIds.Count == 0)
+        {
+            return;
+        }
+
+        await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
+        await connection.ExecuteAsync(new CommandDefinition("""
+        update event
+        set status = @Merged,
+            merged_into_event_id = @TargetEventId,
+            updated_at = @UpdatedAt
+        where id = any(@EventIds);
+        """, new { Merged = EventStatus.Merged, TargetEventId = targetEventId, UpdatedAt = PostgresTimestamp.ToUtc(DateTimeOffset.UtcNow), EventIds = eventIds.ToArray() }, cancellationToken: cancellationToken));
+    }
+
     private static Task UpsertEventAsync(Npgsql.NpgsqlConnection connection, EventAggregate eventAggregate, Npgsql.NpgsqlTransaction? transaction, CancellationToken cancellationToken)
         => connection.ExecuteAsync(new CommandDefinition("""
         insert into event (id, type, canonical_title, summary, aliases, entities, places, key_terms, representative_titles,
             current_stage, progress_summary, milestones, progress_updated_at, status, first_seen_at, last_seen_at,
             last_activated_at, last_pushed_at, push_count, last_push_score, last_push_rank_score, last_push_source_count,
-            is_blacklisted, blacklist_reason, created_at, updated_at)
+            is_blacklisted, blacklist_reason, merged_into_event_id, created_at, updated_at)
         values (@Id, @Type, @CanonicalTitle, @Summary, @Aliases::jsonb, @Entities::jsonb, @Places::jsonb, @KeyTerms::jsonb, @RepresentativeTitles::jsonb,
             @CurrentStage, @ProgressSummary, @Milestones::jsonb, @ProgressUpdatedAt, @Status, @FirstSeenAt, @LastSeenAt,
             @LastActivatedAt, @LastPushedAt, @PushCount, @LastPushScore, @LastPushRankScore, @LastPushSourceCount,
-            @IsBlacklisted, @BlacklistReason, @CreatedAt, @UpdatedAt)
+            @IsBlacklisted, @BlacklistReason, @MergedIntoEventId, @CreatedAt, @UpdatedAt)
         on conflict (id) do update
         set type = excluded.type,
             canonical_title = excluded.canonical_title,
@@ -407,6 +512,7 @@ public sealed class PostgresEventRepository : IEventRepository
             last_push_source_count = excluded.last_push_source_count,
             is_blacklisted = excluded.is_blacklisted,
             blacklist_reason = excluded.blacklist_reason,
+            merged_into_event_id = excluded.merged_into_event_id,
             updated_at = excluded.updated_at;
         """, ToParameters(eventAggregate), transaction, cancellationToken: cancellationToken));
 
@@ -437,6 +543,7 @@ public sealed class PostgresEventRepository : IEventRepository
             eventAggregate.LastPushSourceCount,
             eventAggregate.IsBlacklisted,
             eventAggregate.BlacklistReason,
+            eventAggregate.MergedIntoEventId,
             CreatedAt = PostgresTimestamp.ToUtc(eventAggregate.CreatedAt),
             UpdatedAt = PostgresTimestamp.ToUtc(eventAggregate.UpdatedAt)
         };
@@ -524,8 +631,23 @@ public sealed class PostgresEventRepository : IEventRepository
             LastPushSourceCount = row.LastPushSourceCount,
             IsBlacklisted = row.IsBlacklisted,
             BlacklistReason = row.BlacklistReason,
+            MergedIntoEventId = row.MergedIntoEventId,
             CreatedAt = row.CreatedAt,
             UpdatedAt = row.UpdatedAt
+        };
+
+    private static EventItem ToEventItem(EventItemRow row)
+        => new()
+        {
+            Id = row.Id,
+            DedupKey = row.DedupKey,
+            EventId = row.EventId,
+            ContentItemId = row.ContentItemId,
+            Confidence = row.Confidence,
+            MatchedAt = row.MatchedAt,
+            MatchReason = row.MatchReason,
+            IsActive = row.IsActive,
+            CreatedByMergeId = row.CreatedByMergeId
         };
 
     private static EventAggregate ToEventAggregate(ScoringInputRow row)
@@ -723,6 +845,15 @@ public sealed class PostgresEventRepository : IEventRepository
     public static string BuildDedupKey(string eventId, string contentItemId)
         => $"{eventId.Trim()}|{contentItemId.Trim()}";
 
+    private static string BuildEventItemId(string eventId, string contentItemId)
+        => $"ei:{ShortHash($"{eventId}|{contentItemId}")}";
+
+    private static string ShortHash(string value)
+    {
+        var hash = SHA256.HashData(Encoding.UTF8.GetBytes(value.Trim()));
+        return Convert.ToHexString(hash)[..20].ToLowerInvariant();
+    }
+
     private sealed class ContentItemRow
     {
         public string Id { get; set; } = "";
@@ -776,8 +907,22 @@ public sealed class PostgresEventRepository : IEventRepository
         public int? LastPushSourceCount { get; set; }
         public bool IsBlacklisted { get; set; }
         public string? BlacklistReason { get; set; }
+        public string? MergedIntoEventId { get; set; }
         public DateTimeOffset CreatedAt { get; set; }
         public DateTimeOffset UpdatedAt { get; set; }
+    }
+
+    private sealed class EventItemRow
+    {
+        public string Id { get; set; } = "";
+        public string DedupKey { get; set; } = "";
+        public string EventId { get; set; } = "";
+        public string ContentItemId { get; set; } = "";
+        public double Confidence { get; set; }
+        public DateTimeOffset MatchedAt { get; set; }
+        public string? MatchReason { get; set; }
+        public bool IsActive { get; set; }
+        public string? CreatedByMergeId { get; set; }
     }
 
     private sealed class EventScoreSnapshotRow

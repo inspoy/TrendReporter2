@@ -67,6 +67,7 @@ public static class RunStageNames
     public const string Report = "report";
     public const string Tagging = "tagging";
     public const string Embedding = "embedding";
+    public const string SecondaryMerge = "secondary_merge";
 }
 
 public static class LlmUsageStages

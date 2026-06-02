@@ -101,6 +101,12 @@ public sealed class EventAnalysisConfig
 
     public double StaleMergeThreshold { get; init; } = 0.88;
 
+    public double MergeSimilarityThreshold { get; init; } = 0.7;
+
+    public int MergeCandidateLimit { get; init; } = 15;
+
+    public double MergeLlmConfidenceThreshold { get; init; } = 0.6;
+
     public int MinTrendSamples { get; init; } = 3;
 
     public double MinTrendHeat { get; init; } = 1.5;

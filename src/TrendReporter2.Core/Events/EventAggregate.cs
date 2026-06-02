@@ -50,6 +50,8 @@ public sealed class EventAggregate
 
     public string? BlacklistReason { get; set; }
 
+    public string? MergedIntoEventId { get; set; }
+
     public DateTimeOffset CreatedAt { get; set; }
 
     public DateTimeOffset UpdatedAt { get; set; }
@@ -78,4 +80,5 @@ public static class EventStatus
 {
     public const string Active = "Active";
     public const string Stale = "Stale";
+    public const string Merged = "Merged";
 }

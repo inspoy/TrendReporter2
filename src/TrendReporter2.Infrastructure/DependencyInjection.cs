@@ -45,6 +45,7 @@ public static class DependencyInjection
         services.AddSingleton<IContentIngestService>(static serviceProvider => serviceProvider.GetRequiredService<PostgresContentRepository>());
         services.AddSingleton<IEnrichmentService, EnrichmentService>();
         services.AddSingleton<IEventRepository, PostgresEventRepository>();
+        services.AddSingleton<IEventMergeRepository, PostgresEventMergeRepository>();
         services.AddSingleton<IEmbeddingRepository, PostgresEmbeddingRepository>();
         services.AddSingleton<ITagRepository, PostgresTagRepository>();
         services.AddSingleton<PostgresReportRepository>();
@@ -60,6 +61,7 @@ public static class DependencyInjection
         services.AddSingleton<IEventCandidateService, CompositeEventCandidateService>();
         services.AddSingleton<IEventMatcher, EventMatcher>();
         services.AddSingleton<IEventScoringService, EventScoringService>();
+        services.AddSingleton<ISecondaryMergeService, SecondaryMergeService>();
 
         return services;
     }

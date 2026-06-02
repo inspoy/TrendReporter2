@@ -24,7 +24,7 @@
 | 已完成 | `V2M3` | Source 抽象与 DailyHotApi/flash | 建立 source registry，支持 ranked news 和 flash feed |
 | 已完成 | `V2M4` | Tag 与静态报告 | 实现 tag/event_tag，生成静态 HTML 摘要报告 |
 | 已完成 | `V2M5` | pgvector 候选召回 | 接入 embedding 表、向量索引和 vector recall，规则召回保底 |
-| 待开始 | `V2M6` | 二次归并 | 合并拆分过细的事件，保留 lineage 和 evidence |
+| 已完成 | `V2M6` | 二次归并 | 合并拆分过细的事件，保留 lineage 和 evidence |
 | 待开始 | `V2M7` | Dashboard/Grafana 可选增强 | 基于 PostgreSQL 提供运行健康和历史查询视图 |
 | 待开始 | `V2M8` | 稳定化、文档与回归 | 补齐测试、运行说明、回归样本和调参记录 |
 
@@ -613,67 +613,135 @@
 
 #### `V2M6-T1` 添加 merge history migration
 
-- 创建 `event_merge_history`
-- 添加 `event.merged_into_event_id`
-- 添加 `event_item.is_active`
-- 添加 `event_item.created_by_merge_id`
-- 添加必要索引和约束
+- 创建 `0008_secondary_merge.sql` migration 文件
+- 新增 `event_merge_history` 表，字段为 `id`(uuid pk)、`source_event_id`(uuid)、`target_event_id`(uuid)、`confidence`(double precision)、`reason`(text)、`decided_by`(text)、`evidence_snapshot`(jsonb)、`created_at`(timestamptz)
+- 在 `event_merge_history` 添加 check 约束 `source_event_id <> target_event_id`，unique 约束 `(source_event_id, target_event_id)`
+- 在 `event` 表增加 `merged_into_event_id` 字段（uuid，可为空），加 check `merged_into_event_id <> id`
+- 在 `event` 表增加 `status` check 约束，新增 `merged` 枚举值：`status in ('Active', 'Stale', 'Merged')`
+- 在 `event_item` 表增加 `is_active` 字段（boolean，默认 true），加 index `(event_id, is_active)`
+- 在 `event_item` 表增加 `created_by_merge_id` 字段（uuid，可为空），记录该 evidence 是否由二次归并迁移而来
+- 在 `event` 表增加 index `(status)` 和 `(merged_into_event_id)`
+- 在 `event_merge_history` 表增加 index `(source_event_id)` 和 `(target_event_id)`
+- 对现有数据回填 `event_item.is_active = true`
 
-#### `V2M6-T2` 定义二次归并模型
+#### `V2M6-T2` 定义二次归并领域模型和契约
 
-- 新增 `EventMergeCandidate`
-- 新增 `EventMergeDecision`
-- 新增 `EventMergeHistory`
+- 在 Core 新增 `IEventMergeRepository` 接口，定义写入 `EventMergeHistory`、查询已处理合并对、按事件 id 迁移 evidence 等方法
+- 在 Core 新增 `ISecondaryMergeService` 接口，定义 `MergeRunAsync(runId, now, ct)` 返回二次归并结果统计
+- 在 Core 新增 `EventMergeCandidate` 模型，包含 source event、target event、similarity score、matched reasons
+- 在 Core 新增 `EventMergeDecision` 模型，包含 decision（`same_event`、`related_but_distinct`、`unrelated`）、confidence、reason
+- 在 Core 新增 `EventMergeHistory` 模型，字段对齐 migration 中的表结构，包含 evidence_snapshot 的 JSON 序列化
+- 在 Core 新增 `SecondaryMergeRunResult` record，记录候选对数、硬过滤排除数、LLM 判定数、实际合并数
+- 在 `EventAggregate` 增加 `MergedIntoEventId` 属性（可为空），与 migration 中 `event.merged_into_event_id` 对齐
+- 在 `EventStatus` 常量类增加 `public const string Merged = "Merged";`
+- 在 `EventItem` 增加 `IsActive` 和 `CreatedByMergeId` 属性
+- 在 `IEventRepository` 增加二次归并所需方法：加载待归并候选事件、批量更新 event item is_active、批量迁移 event item 到 target event、批量更新 event merged 状态
 
 #### `V2M6-T3` 发现相似事件对
 
-- 选择 active 或近期 stale 事件
-- 用 event embedding 查询相似事件
-- 排除已 merged 事件
-- 排除同一 merge history 已处理组合
+- 实现 `SecondaryMergeService`，在 Core 中承载二次归并主流程
+- 从 `IEventRepository` 加载 active 和近期 stale 事件作为候选池
+- 排除 `status = 'Merged'` 的事件和 `is_blacklisted = true` 的事件（黑名单不决定合并，但排除以减少候选噪音）
+- 对候选池中的每个事件，通过 event embedding 查询余弦相似事件列表
+- embedding 不可用或不返回结果时跳过该事件，不阻塞其他事件的查询
+- 对每个相似事件对，检查是否已在 `event_merge_history` 中处理过（任一方向 `source_event_id -> target_event_id`），已处理的对直接排除
+- 对相似度低于配置阈值（如 `analysis.event.mergeSimilarityThreshold`，默认 0.7）的对直接排除
+- 去重：若 A-B 和 B-A 都出现，只保留一个方向（选择相似度更高的方向，或按 event id 排序取第一个）
+- 返回 `EventMergeCandidate` 列表，按 similarity 降序排列，受 `analysis.event.mergeCandidateLimit` 限制
 
 #### `V2M6-T4` 实现硬过滤
 
-- 核心实体明显不同则拒绝
-- 时间、地点、关键数字冲突则拒绝
-- event type 不兼容则拒绝
-- 黑名单状态不直接决定合并，但要保留原因
+- 在 `SecondaryMergeService` 中实现 `ApplyHardFilters(EventMergeCandidate)` 方法
+- 核心实体冲突过滤：提取 source 和 target event 的 `Entities` 列表，若存在明显互斥的实体（如人名、机构名）且无交集，则拒绝合并
+- 时间冲突过滤：若两个事件的 `first_seen_at` 和 `last_seen_at` 时间窗完全不重叠，且 `event_type` 不同，则拒绝合并
+- 地点冲突过滤：提取 `Places` 列表，若地点明确不同（如不同国家/城市）且无交集，则拒绝合并
+- 事件类型不兼容过滤：若 source 是 `NewsEvent` 而 target 是 `Topic`（或反之），拒绝合并
+- 关键数字冲突过滤：若 `KeyTerms` 中存在明显冲突的数字（如死亡人数、金额），拒绝合并
+- 硬过滤拒绝的事件记录原因到日志（中文），不写入 merge history
+- 硬过滤通过的事件对标记 `decided_by = 'rule'`，但将 `confidence` 设为低于 LLM 判定值（如 0.6），交由后续 LLM 判定确认
 
 #### `V2M6-T5` 接入 LLM merge 判定
 
-- 对高相似候选调用 Cluster LLM
-- 要求返回 same_event、related_but_distinct、unrelated
-- 记录 confidence 和 reason
-- 写入 `llm_usage.stage = cluster`
+- 在 `IEventMergeRepository` 或 Core 中定义 `SecondaryMergeLlmRequest` 和 `SecondaryMergeLlmResponse` 模型
+- 在 `ISecondaryMergeService` 中接入 `IClusterLlmClient`（复用现有 cluster LLM），对通过硬过滤的高相似候选进行判定
+- 构建 LLM 请求上下文，包含 source event 和 target event 的 canonical_title、summary、representative titles、tags、entities、key terms、first_seen_at、last_seen_at、覆盖 source 数
+- 要求 LLM 返回 decision（`same_event`、`related_but_distinct`、`unrelated`）、confidence（0到1）、reason（中文说明）
+- 决策映射：`same_event` → 执行合并；`related_but_distinct` 和 `unrelated` → 不合并
+- `same_event` 但 confidence 低于 `mergeLlmlConfidenceThreshold`（如 0.6）时，不执行合并，仅记录 reason 到日志
+- 每次 LLM 调用写入 `llm_usage`，`stage = 'cluster'`，关联 source event id 和 target event id
+- LLM 调用失败或未配置时，不执行该对合并，记录原因，不阻塞其他候选对
+- 判定结果写入 `EventMergeDecision` 模型，包含完整 decision、confidence、reason
 
 #### `V2M6-T6` 执行 merge
 
-- 在事务中写入 `event_merge_history`
-- source event 设置 `status = merged`
-- source event 设置 `merged_into_event_id`
-- 迁移或复制 active evidence 到 target event
-- 原 event item 不硬删除
+- `SecondaryMergeService` 收到 `SameEvent` 决策后，使用 `MergeEventsAsync(sourceEventId, targetEventId, decision, ct)` 方法
+- 第一个事务中完成以下操作，任一步骤失败则回滚整个事务：
+  - 写入 `event_merge_history`，包含 source_event_id、target_event_id、confidence、reason、decided_by（`llm`）、evidence_snapshot（序列化 source event 当前的 event_item 列表和 score 快照摘要为 jsonb）
+  - 更新 source event：`status = EventStatus.Merged`，`merged_into_event_id = targetEventId`
+  - 迁移 source event 的 active evidence（`is_active = true` 的 event_item）到 target event：在 target event 下创建新的 event_item 记录，`content_item_id`、`confidence`、`match_reason` 保持不变，`created_by_merge_id` 设为 `event_merge_history.id`，`is_active = true`
+  - 将 source event 的原 event_item 标记为 `is_active = false`
+  - 如果同一 content_item_id 在 target event 中已存在（unique 冲突），跳过该 item，只标记 source 侧 `is_active = false`
+- 事务提交后更新 `SecondaryMergeRunResult` 中的合并统计数
+- 不对原始 `content_item` 做任何删除或修改
+- 导出 `event_merge_history.evidence_snapshot` 便于事后排查和可能的拆分
 
 #### `V2M6-T7` 重算 target event
 
-- 更新 target event summary
-- 更新 tag
-- 重算 score
-- 后续摘要和推送过滤 merged source event
+- 在 merge 事务完成后，对 target event 执行重算
+- 更新 target event 的 `canonical_title`：若 source event 的标题更长或更有代表性，考虑替换；否则保留
+- 更新 target event 的 `summary`：合并 source event 的 summary 信息，确保不丢失关键进展
+- 合并 source event 的 `Aliases`、`Entities`、`Places`、`KeyTerms`、`RepresentativeTitles` 到 target event，去重并限制数量（沿用 `EventMatcher` 中的 AliasLimit、EntityLimit、KeyTermLimit 等常量）
+- 更新 target event 的 `last_seen_at`：取 source 和 target 的较晚值
+- 更新 target event 的 `first_seen_at`：取 source 和 target 的较早值
+- 调用 `EmbeddingService` 重新生成 target event 的 event embedding（因为 summary、title、tags 可能变化），source_text_hash 变化后触发重算
+- 合并 source event 和 target event 的 tags：汇总所有 event_tag，去重，取最高置信度
+- 调用 `EventScoringService` 对 target event 重新评分，基于合并后的 evidence 重新计算 coverage、rank、flash、trend、persistence 等各项分数
+- 写入新的 `event_score_snapshot`，并在新 snapshot 的 trigger_reasons 中增加 `secondary_merge`
+- 确保 `DigestJob` 和静态报告查询中过滤 `status = 'Merged'` 的事件，避免 merged source event 在摘要和报告中重复展示
 
-#### `V2M6-T8` 增加二次归并测试
+#### `V2M6-T8` 在 `FetchJob` 中集成二次归并
 
-- 明显重复事件可合并
-- 明显不同事件不合并
-- merge history 保留原因
-- 原始 content item 不丢失
+- 在 `FetchJob` 的主流程中，在线归并和评分完成后、推送之前插入二次归并阶段
+- 记录 `fetch_run_stage`，`stage = 'secondary_merge'`
+- 调用 `ISecondaryMergeService.MergeRunAsync(runId, now, ct)`
+- 二次归并失败（embedding 不可用、LLM 失败等）不应阻塞整轮 fetch，记录 warning 日志和 stage error 后继续后续流程
+- 将二次归并结果统计写入日志：候选对数、硬过滤排除数、LLM 判定数、实际合并数
+
+#### `V2M6-T9` 实现 PostgreSQL merge 仓储
+
+- 在 Infrastructure 新增 `PostgresEventMergeRepository`，实现 `IEventMergeRepository`
+- 实现 `InsertMergeHistoryAsync`：Dapper 写入 `event_merge_history`
+- 实现 `HasBeenProcessedAsync(sourceEventId, targetEventId)`：查询任一方向是否存在 merge history 记录
+- 实现 `MigrateEventItemsAsync(sourceEventId, targetEventId, mergeHistoryId)`：在事务中迁移 active event_item，处理 unique 冲突
+- 实现 `DeactivateEventItemsAsync(eventId)`：批量将 event_item 的 `is_active` 置为 false
+- 在 `PostgresEventRepository` 中增加二次归并所需的新方法：
+  - `LoadMergeCandidateEventsAsync(now, historyHours, staleDays)`：加载 active 和近期 stale 的非 merged 事件及其 event_item、快照等评分输入所需数据
+  - `BatchUpdateEventItemActiveStateAsync`：批量更新 event_item 的 is_active 状态
+  - `BatchMigrateEventItemsAsync`：批量迁移 event_item 到 target event
+  - `BatchSetEventMergedStatusAsync`：批量更新 event 的 merged_into_event_id 和 status
+- 在 `AddTrendReporterInfrastructure` 中注册 `PostgresEventMergeRepository` 和 `ISecondaryMergeService`
+
+#### `V2M6-T10` 增加二次归并测试
+
+- 单元测试 `SecondaryMergeService` 的硬过滤逻辑：验证核心实体冲突、时间不重叠、地点冲突、event type 不兼容能正确拒绝
+- 单元测试 merge 后 target event 的 summary、tags、score 重算逻辑
+- 回归样本增加：明显重复事件合并场景、明显不同事件不合并场景、merge history 保留原因和 evidence_snapshot、merged source event 不出现在摘要候选
+- 集成测试 `PostgresEventMergeRepository` 的 merge history 写入、已处理对查询、event_item 迁移和去激活
+- 验证原始 `content_item` 在整个 merge 流程后不丢失
+- 验证 merge 事务失败时（如 unique 冲突）正确回滚，不产生半成品状态
 
 ### 验收标准
 
-- 系统能合并明显拆分的重复事件
-- 误合并风险通过硬过滤和 LLM reason 可追踪
-- 原始 content item、source event 和 event item lineage 不丢失
-- 摘要和报告不重复展示 merged source event
+- 系统能通过 event embedding 发现相似的 active 和近期 stale 事件对
+- 硬过滤能正确排除核心实体、时间、地点、关键数字或 event type 明显冲突的事件对
+- LLM 判定为 `same_event` 的对可成功合并，写入 `event_merge_history` 并迁移 active evidence
+- 误合并风险通过硬过滤和 LLM reason 可追踪；`evidence_snapshot` 保留合并前证据摘要便于事后排查
+- source event 标记为 `status = 'Merged'`，`merged_into_event_id` 记录目标事件
+- 原始 `content_item`、source event 和 event item lineage 不丢失
+- target event 合并后 summary、tags、embedding 和 score 正确更新
+- 摘要和报告不重复展示 `status = 'Merged'` 的 source event
+- embedding 不可用或 LLM 失败时不阻塞整轮 fetch，日志有明确 warning
+- merge 事务失败时正确回滚，不产生半成品状态
 
 ### 3.8 `V2M7` Dashboard/Grafana 可选增强
 
@@ -842,7 +910,7 @@
 | `P4` | `V2M3-T1` source 模型、`V2M3-T4` NewsNow 改造、`V2M3-T5` DailyHotApi adapter |
 | `P5` | `V2M4-T3` WebExtract tags、`V2M4-T4` WebExtract tag 规范化、`V2M4-T5` LLM tagging 补全、`V2M4-T7` report read model、`V2M4-T9` HTML renderer |
 | `P6` | `V2M5-T3` EmbeddingClient、`V2M5-T4` embedding 仓储、`V2M5-T8` 召回合并 |
-| `P7` | `V2M6-T3` 相似事件对发现、`V2M6-T4` 硬过滤、`V2M6-T8` 二次归并测试 |
+| `P7` | `V2M6-T3` 相似事件对发现、`V2M6-T4` 硬过滤、`V2M6-T10` 二次归并测试 |
 | `P8` | `V2M8-T1` 单元测试、`V2M8-T3` 回归样本、`V2M8-T4` 运行文档 |
 
 ## 6. 最小可运行版本

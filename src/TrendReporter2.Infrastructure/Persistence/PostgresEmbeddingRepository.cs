@@ -141,6 +141,22 @@ public sealed class PostgresEmbeddingRepository : IEmbeddingRepository
             : new ContentEmbeddingRecord(row.OwnerId, row.Model, row.Version, row.Dimensions, row.SourceTextHash, ParseVector(row.EmbeddingText), row.CreatedAt, row.UpdatedAt);
     }
 
+    public async Task<EventEmbeddingRecord?> GetEventEmbeddingAsync(string eventId, string model, string version, int dimensions, CancellationToken cancellationToken)
+    {
+        await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
+        var row = await connection.QuerySingleOrDefaultAsync<EmbeddingRecordRow>(new CommandDefinition("""
+        select event_id as OwnerId, model, version, dimensions, source_text_hash, embedding::text as EmbeddingText, created_at, updated_at
+        from event_embedding
+        where event_id = @EventId
+          and model = @Model
+          and version = @Version
+          and dimensions = @Dimensions;
+        """, new { EventId = eventId, Model = model, Version = version, Dimensions = dimensions }, cancellationToken: cancellationToken));
+        return row is null
+            ? null
+            : new EventEmbeddingRecord(row.OwnerId, row.Model, row.Version, row.Dimensions, row.SourceTextHash, ParseVector(row.EmbeddingText), row.CreatedAt, row.UpdatedAt);
+    }
+
     public async Task<IReadOnlyList<VectorEventCandidate>> QuerySimilarEventsAsync(float[] embedding, string model, string version, int dimensions, DateTimeOffset now, int historyHours, int archiveRecallDays, double threshold, int limit, CancellationToken cancellationToken)
     {
         if (embedding.Length == 0 || limit <= 0)
@@ -159,6 +175,7 @@ public sealed class PostgresEmbeddingRepository : IEmbeddingRepository
           and ee.version = @Version
           and ee.dimensions = @Dimensions
           and e.is_blacklisted = false
+          and e.merged_into_event_id is null
           and (
               (e.status = @Active and e.last_seen_at >= @ActiveCutoff)
               or (e.status = @Stale and e.last_seen_at >= @StaleCutoff)
@@ -273,6 +290,7 @@ public sealed class PostgresEmbeddingRepository : IEmbeddingRepository
             LastPushSourceCount = row.LastPushSourceCount,
             IsBlacklisted = row.IsBlacklisted,
             BlacklistReason = row.BlacklistReason,
+            MergedIntoEventId = row.MergedIntoEventId,
             CreatedAt = row.CreatedAt,
             UpdatedAt = row.UpdatedAt
         };
@@ -313,6 +331,7 @@ public sealed class PostgresEmbeddingRepository : IEmbeddingRepository
         public int? LastPushSourceCount { get; set; }
         public bool IsBlacklisted { get; set; }
         public string? BlacklistReason { get; set; }
+        public string? MergedIntoEventId { get; set; }
         public DateTimeOffset CreatedAt { get; set; }
         public DateTimeOffset UpdatedAt { get; set; }
     }

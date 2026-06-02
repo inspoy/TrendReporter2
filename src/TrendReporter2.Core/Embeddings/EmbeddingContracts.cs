@@ -27,6 +27,9 @@ public interface IEmbeddingRepository
 
     Task<ContentEmbeddingRecord?> GetContentEmbeddingAsync(string contentItemId, string model, string version, int dimensions, CancellationToken cancellationToken);
 
+    Task<EventEmbeddingRecord?> GetEventEmbeddingAsync(string eventId, string model, string version, int dimensions, CancellationToken cancellationToken)
+        => Task.FromResult<EventEmbeddingRecord?>(null);
+
     Task<IReadOnlyList<VectorEventCandidate>> QuerySimilarEventsAsync(float[] embedding, string model, string version, int dimensions, DateTimeOffset now, int historyHours, int archiveRecallDays, double threshold, int limit, CancellationToken cancellationToken);
 }
 

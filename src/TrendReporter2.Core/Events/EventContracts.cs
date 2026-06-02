@@ -29,6 +29,21 @@ public interface IEventRepository
     Task UpdatePushLogAsync(PushLog pushLog, CancellationToken cancellationToken);
 
     Task UpdateEventsAsync(IReadOnlyList<EventAggregate> events, CancellationToken cancellationToken);
+
+    Task<IReadOnlyList<EventAggregate>> LoadMergeCandidateEventsAsync(DateTimeOffset now, int historyHours, int archiveRecallDays, CancellationToken cancellationToken)
+        => Task.FromResult<IReadOnlyList<EventAggregate>>([]);
+
+    Task<IReadOnlyList<EventItem>> LoadActiveEventItemsAsync(string eventId, CancellationToken cancellationToken)
+        => Task.FromResult<IReadOnlyList<EventItem>>([]);
+
+    Task BatchUpdateEventItemActiveStateAsync(IReadOnlyList<string> eventItemIds, bool isActive, CancellationToken cancellationToken)
+        => Task.CompletedTask;
+
+    Task BatchMigrateEventItemsAsync(IReadOnlyList<EventItem> items, string mergeHistoryId, DateTimeOffset now, CancellationToken cancellationToken)
+        => Task.CompletedTask;
+
+    Task BatchSetEventMergedStatusAsync(IReadOnlyList<string> eventIds, string targetEventId, CancellationToken cancellationToken)
+        => Task.CompletedTask;
 }
 
 public interface IEventCandidateService
@@ -49,6 +64,11 @@ public interface IEventMatcher
 }
 
 public interface IEventScoringService
+{
+    Task<EventScoringRunResult> ScoreAndPushRunAsync(string runId, DateTimeOffset runStartedAt, DateTimeOffset now, CancellationToken cancellationToken);
+}
+
+public interface IScoringService
 {
     Task<EventScoringRunResult> ScoreAndPushRunAsync(string runId, DateTimeOffset runStartedAt, DateTimeOffset now, CancellationToken cancellationToken);
 }
@@ -74,6 +94,22 @@ public interface IAppStateRepository
     Task<AppState?> GetAsync(string key, CancellationToken cancellationToken);
 
     Task UpsertAsync(AppState state, CancellationToken cancellationToken);
+}
+
+public interface IEventMergeRepository
+{
+    Task InsertMergeHistoryAsync(EventMergeHistory mergeHistory, CancellationToken cancellationToken);
+
+    Task<bool> HasBeenProcessedAsync(string sourceEventId, string targetEventId, CancellationToken cancellationToken);
+
+    Task MigrateEventItemsAsync(string sourceEventId, string targetEventId, string mergeHistoryId, DateTimeOffset now, CancellationToken cancellationToken);
+
+    Task DeactivateEventItemsAsync(string eventId, CancellationToken cancellationToken);
+}
+
+public interface ISecondaryMergeService
+{
+    Task<SecondaryMergeRunResult> MergeRunAsync(string runId, DateTimeOffset now, CancellationToken cancellationToken);
 }
 
 public sealed record EventCandidate(

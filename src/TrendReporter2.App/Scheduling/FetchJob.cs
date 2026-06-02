@@ -27,6 +27,7 @@ public sealed class FetchJob : IFetchJob
     private readonly IEventMatcher _eventMatcher;
     private readonly IEventRepository _eventRepository;
     private readonly IEventScoringService _eventScoringService;
+    private readonly ISecondaryMergeService _secondaryMergeService;
     private readonly ITagRepository _tagRepository;
     private readonly ITagLlmClient _tagLlmClient;
     private readonly IFetchRunRepository _fetchRunRepository;
@@ -44,6 +45,7 @@ public sealed class FetchJob : IFetchJob
         IEventMatcher eventMatcher,
         IEventRepository eventRepository,
         IEventScoringService eventScoringService,
+        ISecondaryMergeService secondaryMergeService,
         ITagRepository tagRepository,
         ITagLlmClient tagLlmClient,
         IFetchRunRepository fetchRunRepository,
@@ -62,6 +64,7 @@ public sealed class FetchJob : IFetchJob
         _eventMatcher = eventMatcher;
         _eventRepository = eventRepository;
         _eventScoringService = eventScoringService;
+        _secondaryMergeService = secondaryMergeService;
         _tagRepository = tagRepository;
         _tagLlmClient = tagLlmClient;
         _fetchRunRepository = fetchRunRepository;
@@ -192,6 +195,23 @@ public sealed class FetchJob : IFetchJob
                 scoringResult = new EventScoringRunResult(0, 0, 0);
             }
             await RecordSkippedStageAsync(fetchRun.Id, RunStageNames.Push, "即时推送当前包含在 score 阶段执行。", cancellationToken);
+
+            SecondaryMergeRunResult secondaryMergeResult;
+            try
+            {
+                secondaryMergeResult = await RecordStageAsync(
+                    fetchRun.Id,
+                    RunStageNames.SecondaryMerge,
+                    () => _secondaryMergeService.MergeRunAsync(fetchRun.Id, DateTimeOffset.UtcNow, cancellationToken),
+                    cancellationToken);
+                _logger.LogInformation("二次归并完成，运行编号={RunId}，候选对={CandidatePairCount}，硬过滤排除={HardFilterExcludedCount}，LLM判定={LlmDecidedCount}，实际合并={MergedCount}。",
+                    fetchRun.Id, secondaryMergeResult.CandidatePairCount, secondaryMergeResult.HardFilterExcludedCount, secondaryMergeResult.LlmDecidedCount, secondaryMergeResult.MergedCount);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                _logger.LogWarning(ex, "二次归并失败，运行编号={RunId}；抓取流程将继续。", fetchRun.Id);
+                secondaryMergeResult = new SecondaryMergeRunResult(0, 0, 0, 0);
+            }
 
             fetchRun.SuccessSourceCount = sourceResults.Count(result => result.Success);
             fetchRun.FailureSourceCount = sourceResults.Count(result => !result.Success);

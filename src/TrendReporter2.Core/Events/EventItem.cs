@@ -15,4 +15,8 @@ public sealed class EventItem
     public DateTimeOffset MatchedAt { get; set; }
 
     public string? MatchReason { get; set; }
+
+    public bool IsActive { get; set; } = true;
+
+    public string? CreatedByMergeId { get; set; }
 }
