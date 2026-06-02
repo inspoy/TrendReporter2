@@ -2,52 +2,186 @@
   {
     "id": "merge-ai-model",
     "kind": "merge",
-    "incomingTitle": "Reuters: OpenAI begins wider rollout of GPT-4o voice features",
-    "summary": "OpenAI said more paid users would receive GPT-4o voice access after a limited safety review period.",
-    "candidateTitle": "OpenAI launches GPT-4o with voice and vision features",
-    "decision": "same_event",
-    "confidence": 0.93,
-    "expectedCreated": 0,
-    "expectedMerged": 1,
-    "expectedReactivated": 0
+    "summary": "Same-event AI model rollout should merge into an active candidate.",
+    "offline": true,
+    "inputs": {
+      "incomingTitle": "Reuters: OpenAI begins wider rollout of GPT-4o voice features"
+    },
+    "fakes": {
+      "backing": "in-memory",
+      "externalServices": "none",
+      "candidateTitle": "OpenAI launches GPT-4o with voice and vision features",
+      "clusterDecision": "same_event",
+      "clusterConfidence": 0.93
+    },
+    "expectations": {
+      "createdEvents": 0,
+      "mergedEvents": 1,
+      "reactivatedEvents": 0,
+      "mappedItems": 1
+    }
   },
   {
     "id": "no-merge-related-company",
     "kind": "no-merge",
-    "incomingTitle": "BBC: OpenAI agrees deal to buy robotics start-up",
-    "summary": "The acquisition would expand OpenAI's hardware and robotics research, according to people familiar with the plan.",
-    "candidateTitle": "OpenAI launches GPT-4o with voice and vision features",
-    "decision": "related_but_distinct",
-    "confidence": 0.74,
-    "expectedCreated": 1,
-    "expectedMerged": 0,
-    "expectedReactivated": 0
+    "summary": "Related company news about a distinct acquisition should create a new event.",
+    "offline": true,
+    "inputs": {
+      "incomingTitle": "BBC: OpenAI agrees deal to buy robotics start-up"
+    },
+    "fakes": {
+      "backing": "in-memory",
+      "externalServices": "none",
+      "candidateTitle": "OpenAI launches GPT-4o with voice and vision features",
+      "clusterDecision": "related_but_distinct",
+      "clusterConfidence": 0.74
+    },
+    "expectations": {
+      "createdEvents": 1,
+      "mergedEvents": 0,
+      "reactivatedEvents": 0,
+      "mappedItems": 1
+    }
   },
   {
     "id": "reactivation-follow-up",
     "kind": "reactivation",
-    "incomingTitle": "The Verge: GPT-4o voice mode starts reaching enterprise customers",
-    "summary": "Enterprise customers began receiving access weeks after OpenAI first announced GPT-4o's voice capabilities.",
-    "candidateTitle": "OpenAI GPT-4o voice mode launches for early testers",
-    "decision": "follow_up",
-    "confidence": 0.91,
-    "stale": true,
-    "expectedCreated": 0,
-    "expectedMerged": 1,
-    "expectedReactivated": 1
+    "summary": "A follow-up to a stale event should merge and reactivate the event.",
+    "offline": true,
+    "inputs": {
+      "incomingTitle": "The Verge: GPT-4o voice mode starts reaching enterprise customers"
+    },
+    "fakes": {
+      "backing": "in-memory",
+      "externalServices": "none",
+      "candidateTitle": "OpenAI GPT-4o voice mode launches for early testers",
+      "clusterDecision": "follow_up",
+      "clusterConfidence": 0.91,
+      "candidateStale": true
+    },
+    "expectations": {
+      "createdEvents": 0,
+      "mergedEvents": 1,
+      "reactivatedEvents": 1,
+      "mappedItems": 1
+    }
   },
   {
     "id": "blacklist-low-value",
     "kind": "blacklist",
-    "incomingTitle": "地方抽奖广告活动登上热榜",
-    "summary": "多个营销号转发抽奖广告活动，内容缺少公共事件价值。",
-    "blacklistKeyword": "广告"
+    "summary": "Low-value advertising content should be blacklisted by deterministic keywords.",
+    "offline": true,
+    "inputs": {
+      "incomingTitle": "地方抽奖广告活动登上热榜"
+    },
+    "fakes": {
+      "backing": "in-memory",
+      "externalServices": "none"
+    },
+    "expectations": {
+      "blacklistKeyword": "广告"
+    }
   },
   {
     "id": "push-dedup-instant",
     "kind": "push-dedup",
-    "incomingTitle": "多来源报道欧盟 AI Act 监管执行细则更新",
-    "summary": "监管部门发布执行细则后，多家媒体跟进报道企业合规时间表。",
-    "dedupKey": "instant:event-regulation:run-1:first_push"
+    "summary": "A repeated instant push dedup key should be rejected by the fake repository.",
+    "offline": true,
+    "inputs": {
+      "incomingTitle": "多来源报道欧盟 AI Act 监管执行细则更新"
+    },
+    "fakes": {
+      "backing": "in-memory",
+      "externalServices": "none"
+    },
+    "expectations": {
+      "dedupKey": "instant:event-regulation:run-1:first_push"
+    }
+  },
+  {
+    "id": "flash-scoring-breaking-regulation",
+    "kind": "flash-scoring",
+    "summary": "A repeated flash item with broad source coverage should declare deterministic trigger reasons.",
+    "offline": true,
+    "inputs": {
+      "incomingTitle": "快讯：欧盟发布 AI Act 首批执行细则"
+    },
+    "fakes": {
+      "backing": "fixture-metadata",
+      "externalServices": "none"
+    },
+    "expectations": {
+      "triggerReasons": ["flash_multi_source", "flash_repeated"]
+    }
+  },
+  {
+    "id": "vector-fallback-rule-recall",
+    "kind": "vector-fallback",
+    "summary": "Vector recall failure should be represented as rule-recall fallback without external embedding calls.",
+    "offline": true,
+    "inputs": {
+      "incomingTitle": "OpenAI 语音功能继续扩大灰度范围"
+    },
+    "fakes": {
+      "backing": "fixture-metadata",
+      "externalServices": "none"
+    },
+    "expectations": {
+      "ruleFallbackUsed": true,
+      "vectorFailure": "simulated embedding repository exception",
+      "matchedFeatures": ["entity", "keyword"]
+    }
+  },
+  {
+    "id": "secondary-merge-hard-filter-archive",
+    "kind": "secondary-merge-hard-filter",
+    "summary": "Secondary merge should keep hard-filtered archive candidates out of the candidate set.",
+    "offline": true,
+    "inputs": {
+      "incomingTitle": "特斯拉发布新一代储能产品价格"
+    },
+    "fakes": {
+      "backing": "fixture-metadata",
+      "externalServices": "none"
+    },
+    "expectations": {
+      "excludedCandidateIds": ["event-unrelated-archive"],
+      "hardFilterReason": "entity_mismatch"
+    }
+  },
+  {
+    "id": "tag-generation-ai-policy",
+    "kind": "tag-generation",
+    "summary": "Tag generation fixtures should declare stable tag names and categories without calling tagging LLMs.",
+    "offline": true,
+    "inputs": {
+      "incomingTitle": "全球监管机构讨论生成式 AI 合规框架"
+    },
+    "fakes": {
+      "backing": "fixture-metadata",
+      "externalServices": "none"
+    },
+    "expectations": {
+      "tags": [
+        { "name": "AI监管", "category": "topic" },
+        { "name": "生成式AI", "category": "entity" }
+      ]
+    }
+  },
+  {
+    "id": "digest-filtering-merged-blacklisted",
+    "kind": "digest-filtering",
+    "summary": "Digest filtering should declare merged and blacklisted exclusion flags for fake candidates.",
+    "offline": true,
+    "inputs": {
+      "incomingTitle": "摘要候选包含已合并事件和黑名单事件"
+    },
+    "fakes": {
+      "backing": "fixture-metadata",
+      "externalServices": "none"
+    },
+    "expectations": {
+      "excludedFlags": ["merged", "blacklisted"]
+    }
   }
 ]

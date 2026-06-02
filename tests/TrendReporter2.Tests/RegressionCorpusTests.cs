@@ -8,48 +8,111 @@ namespace TrendReporter2.Tests;
 
 public sealed class RegressionCorpusTests
 {
+    private static readonly string[] RequiredKinds =
+    [
+        "merge",
+        "no-merge",
+        "reactivation",
+        "blacklist",
+        "push-dedup",
+        "flash-scoring",
+        "vector-fallback",
+        "secondary-merge-hard-filter",
+        "tag-generation",
+        "digest-filtering"
+    ];
+
+    private static readonly string[] ValidTagCategories = ["topic", "entity", "domain", "risk"];
+
     [Fact]
-    public async Task RegressionCorpus_CoversMatchingBlacklistAndPushDedupSamples()
+    public async Task RegressionCorpus_CoversV2OfflineContractSamples()
     {
         var cases = LoadCases();
 
-        Assert.All(cases, item => Assert.False(string.IsNullOrWhiteSpace(item.Summary)));
-        Assert.Contains(cases, item => item.Kind == "merge");
-        Assert.Contains(cases, item => item.Kind == "no-merge");
-        Assert.Contains(cases, item => item.Kind == "reactivation");
-        Assert.Contains(cases, item => item.Kind == "blacklist");
-        Assert.Contains(cases, item => item.Kind == "push-dedup");
+        AssertCorpusContract(cases);
 
         foreach (var regressionCase in cases.Where(item => item.Kind is "merge" or "no-merge" or "reactivation"))
         {
             var result = await RunMatcherCaseAsync(regressionCase);
-            Assert.Equal(regressionCase.ExpectedCreated, result.CreatedEventCount);
-            Assert.Equal(regressionCase.ExpectedMerged, result.MergedEventCount);
-            Assert.Equal(regressionCase.ExpectedReactivated, result.ReactivatedEventCount);
-            Assert.Equal(1, result.MappedItemCount);
+            var expectations = Expectations(regressionCase);
+            Assert.Equal(expectations.CreatedEvents, result.CreatedEventCount);
+            Assert.Equal(expectations.MergedEvents, result.MergedEventCount);
+            Assert.Equal(expectations.ReactivatedEvents, result.ReactivatedEventCount);
+            Assert.Equal(expectations.MappedItems, result.MappedItemCount);
         }
 
-        var blacklistCase = cases.Single(item => item.Kind == "blacklist");
-        var blacklisted = new EventAggregate { CanonicalTitle = blacklistCase.IncomingTitle, Summary = blacklistCase.IncomingTitle };
-        Assert.True(EventBlacklistPolicy.Apply(blacklisted, new FilterConfig { BlacklistKeywords = [blacklistCase.BlacklistKeyword!] }));
+        foreach (var blacklistCase in Cases(cases, "blacklist"))
+        {
+            var blacklistInput = Inputs(blacklistCase);
+            var blacklistExpectations = Expectations(blacklistCase);
+            Assert.False(string.IsNullOrWhiteSpace(blacklistExpectations.BlacklistKeyword));
+            var blacklisted = new EventAggregate { CanonicalTitle = blacklistInput.IncomingTitle, Summary = blacklistInput.IncomingTitle };
+            Assert.True(EventBlacklistPolicy.Apply(blacklisted, new FilterConfig { BlacklistKeywords = [blacklistExpectations.BlacklistKeyword] }));
+        }
 
-        var pushDedupCase = cases.Single(item => item.Kind == "push-dedup");
-        var repository = new PushDedupRepository(pushDedupCase.DedupKey!);
-        Assert.False(await repository.InsertPushLogIfMissingAsync(new PushLog { DedupKey = pushDedupCase.DedupKey! }, CancellationToken.None));
+        foreach (var pushDedupCase in Cases(cases, "push-dedup"))
+        {
+            var pushDedupExpectations = Expectations(pushDedupCase);
+            Assert.False(string.IsNullOrWhiteSpace(pushDedupExpectations.DedupKey));
+            var repository = new PushDedupRepository(pushDedupExpectations.DedupKey);
+            Assert.False(await repository.InsertPushLogIfMissingAsync(new PushLog { DedupKey = pushDedupExpectations.DedupKey }, CancellationToken.None));
+        }
+
+        foreach (var flashScoringCase in Cases(cases, "flash-scoring"))
+        {
+            var flashExpectations = Expectations(flashScoringCase);
+            Assert.Contains(TriggerReasons.FlashMultiSource, flashExpectations.TriggerReasons);
+            Assert.Contains(TriggerReasons.FlashRepeated, flashExpectations.TriggerReasons);
+        }
+
+        foreach (var vectorFallbackCase in Cases(cases, "vector-fallback"))
+        {
+            var vectorFallbackExpectations = Expectations(vectorFallbackCase);
+            Assert.True(vectorFallbackExpectations.RuleFallbackUsed);
+            Assert.False(string.IsNullOrWhiteSpace(vectorFallbackExpectations.VectorFailure));
+            Assert.NotEmpty(vectorFallbackExpectations.MatchedFeatures);
+        }
+
+        foreach (var hardFilterCase in Cases(cases, "secondary-merge-hard-filter"))
+        {
+            var hardFilterExpectations = Expectations(hardFilterCase);
+            Assert.NotEmpty(hardFilterExpectations.ExcludedCandidateIds);
+            Assert.False(string.IsNullOrWhiteSpace(hardFilterExpectations.HardFilterReason));
+        }
+
+        foreach (var tagCase in Cases(cases, "tag-generation"))
+        {
+            var tagExpectations = Expectations(tagCase);
+            Assert.NotEmpty(tagExpectations.Tags);
+            Assert.All(tagExpectations.Tags, tag =>
+            {
+                Assert.False(string.IsNullOrWhiteSpace(tag.Name));
+                Assert.Contains(tag.Category, ValidTagCategories);
+            });
+        }
+
+        foreach (var digestFilteringCase in Cases(cases, "digest-filtering"))
+        {
+            var digestExpectations = Expectations(digestFilteringCase);
+            Assert.Contains("merged", digestExpectations.ExcludedFlags);
+            Assert.Contains("blacklisted", digestExpectations.ExcludedFlags);
+        }
     }
 
     private static async Task<EventMatchRunResult> RunMatcherCaseAsync(RegressionCase regressionCase)
     {
         var now = DateTimeOffset.Parse("2026-05-05T08:00:00Z");
-        var stale = regressionCase.Stale ? now.AddHours(-30) : now.AddHours(-1);
+        var inputs = Inputs(regressionCase);
+        var fakes = Fakes(regressionCase);
+        var stale = fakes.CandidateStale ? now.AddHours(-30) : now.AddHours(-1);
         var candidateEvent = new EventAggregate
         {
             Id = $"event-{regressionCase.Id}",
-            CanonicalTitle = regressionCase.CandidateTitle,
-            Summary = regressionCase.CandidateTitle,
+            CanonicalTitle = fakes.CandidateTitle,
+            Summary = fakes.CandidateTitle,
             Entities = ["OpenAI", "GPT", "GPT-4o"],
-            Aliases = [regressionCase.CandidateTitle],
-            Status = regressionCase.Stale ? EventStatus.Stale : EventStatus.Active,
+            Aliases = [fakes.CandidateTitle],
+            Status = fakes.CandidateStale ? EventStatus.Stale : EventStatus.Active,
             FirstSeenAt = stale.AddHours(-1),
             LastSeenAt = stale,
             LastActivatedAt = stale,
@@ -59,8 +122,8 @@ public sealed class RegressionCorpusTests
         var item = new ContentItem
         {
             Id = $"ci-{regressionCase.Id}",
-            Title = regressionCase.IncomingTitle,
-            Summary = regressionCase.IncomingTitle,
+            Title = inputs.IncomingTitle,
+            Summary = inputs.IncomingTitle,
             Source = "fixture",
             Category = "tech",
             SourceItemId = regressionCase.Id,
@@ -69,15 +132,63 @@ public sealed class RegressionCorpusTests
         var repository = new MatcherRepository(item, candidateEvent);
         var candidateService = new FixtureCandidateService(candidateEvent);
         var llm = new FixtureClusterClient(new ClusterMatchResult(
-            regressionCase.Decision,
-            regressionCase.Decision == ClusterDecisions.RelatedButDistinct ? null : candidateEvent.Id,
-            regressionCase.CandidateTitle,
-            regressionCase.CandidateTitle,
-            regressionCase.Confidence,
+            fakes.ClusterDecision,
+            fakes.ClusterDecision == ClusterDecisions.RelatedButDistinct ? null : candidateEvent.Id,
+            fakes.CandidateTitle,
+            fakes.CandidateTitle,
+            fakes.ClusterConfidence,
             regressionCase.Kind));
         var matcher = new EventMatcher(Config(), repository, candidateService, llm, NullLoggerFactory.Instance);
 
         return await matcher.MatchRunAsync("run-fixture", now, CancellationToken.None);
+    }
+
+    private static void AssertCorpusContract(IReadOnlyList<RegressionCase> cases)
+    {
+        Assert.NotEmpty(cases);
+        Assert.All(RequiredKinds, kind => Assert.Contains(cases, item => item.Kind == kind));
+        Assert.Equal(cases.Count, cases.Select(item => item.Id).Distinct(StringComparer.Ordinal).Count());
+
+        Assert.All(cases, item =>
+        {
+            Assert.False(string.IsNullOrWhiteSpace(item.Id));
+            Assert.False(string.IsNullOrWhiteSpace(item.Kind));
+            Assert.False(string.IsNullOrWhiteSpace(item.Summary));
+            Assert.True(item.Offline);
+
+            var inputs = Inputs(item);
+            var fakes = Fakes(item);
+            var expectations = Expectations(item);
+            Assert.False(string.IsNullOrWhiteSpace(inputs.IncomingTitle));
+            Assert.False(string.IsNullOrWhiteSpace(fakes.Backing));
+            Assert.Equal("none", fakes.ExternalServices);
+            Assert.NotNull(expectations);
+        });
+    }
+
+    private static IReadOnlyList<RegressionCase> Cases(IReadOnlyList<RegressionCase> cases, string kind)
+    {
+        var matches = cases.Where(item => item.Kind == kind).ToList();
+        Assert.NotEmpty(matches);
+        return matches;
+    }
+
+    private static CaseInputs Inputs(RegressionCase regressionCase)
+    {
+        Assert.NotNull(regressionCase.Inputs);
+        return regressionCase.Inputs;
+    }
+
+    private static CaseFakes Fakes(RegressionCase regressionCase)
+    {
+        Assert.NotNull(regressionCase.Fakes);
+        return regressionCase.Fakes;
+    }
+
+    private static CaseExpectations Expectations(RegressionCase regressionCase)
+    {
+        Assert.NotNull(regressionCase.Expectations);
+        return regressionCase.Expectations;
     }
 
     private static List<RegressionCase> LoadCases()
@@ -101,20 +212,55 @@ public sealed class RegressionCorpusTests
             System = new SystemConfig { MaxParallelLlm = 1 }
         };
 
-    private sealed record RegressionCase(
-        string Id,
-        string Kind,
-        string IncomingTitle,
-        string? Summary,
-        string CandidateTitle,
-        string Decision,
-        double Confidence,
-        bool Stale,
-        int ExpectedCreated,
-        int ExpectedMerged,
-        int ExpectedReactivated,
-        string? BlacklistKeyword,
-        string? DedupKey);
+    private sealed class RegressionCase
+    {
+        public string Id { get; init; } = string.Empty;
+        public string Kind { get; init; } = string.Empty;
+        public string Summary { get; init; } = string.Empty;
+        public bool Offline { get; init; }
+        public CaseInputs? Inputs { get; init; }
+        public CaseFakes? Fakes { get; init; }
+        public CaseExpectations? Expectations { get; init; }
+    }
+
+    private sealed class CaseInputs
+    {
+        public string IncomingTitle { get; init; } = string.Empty;
+    }
+
+    private sealed class CaseFakes
+    {
+        public string Backing { get; init; } = string.Empty;
+        public string ExternalServices { get; init; } = string.Empty;
+        public string CandidateTitle { get; init; } = string.Empty;
+        public string ClusterDecision { get; init; } = ClusterDecisions.SameEvent;
+        public double ClusterConfidence { get; init; } = 0.9;
+        public bool CandidateStale { get; init; }
+    }
+
+    private sealed class CaseExpectations
+    {
+        public int CreatedEvents { get; init; }
+        public int MergedEvents { get; init; }
+        public int ReactivatedEvents { get; init; }
+        public int MappedItems { get; init; }
+        public string? BlacklistKeyword { get; init; }
+        public string? DedupKey { get; init; }
+        public IReadOnlyList<string> TriggerReasons { get; init; } = [];
+        public bool RuleFallbackUsed { get; init; }
+        public string? VectorFailure { get; init; }
+        public IReadOnlyList<string> MatchedFeatures { get; init; } = [];
+        public IReadOnlyList<string> ExcludedCandidateIds { get; init; } = [];
+        public string? HardFilterReason { get; init; }
+        public IReadOnlyList<ExpectedTag> Tags { get; init; } = [];
+        public IReadOnlyList<string> ExcludedFlags { get; init; } = [];
+    }
+
+    private sealed class ExpectedTag
+    {
+        public string Name { get; init; } = string.Empty;
+        public string Category { get; init; } = string.Empty;
+    }
 
     private sealed class FixtureClusterClient : IClusterLlmClient
     {

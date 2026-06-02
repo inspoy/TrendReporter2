@@ -829,88 +829,137 @@
 
 ### 目标
 
-补齐 V2 测试、运行说明、回归样本和调参记录，使系统可长期运行并便于后续维护。
+在 V2M0 到 V2M7 的主要能力已经落地后，集中完成稳定化收口：明确测试分层，补齐核心单元测试和 PostgreSQL 集成测试，建立 V2 regression corpus，更新运行、配置、测试文档，并沉淀调参记录与已知限制。
+
+此里程碑不新增业务能力。它的目标是让现有 V2 主链路可重复验证、可离线回归、可在新环境按文档部署，并让后续维护者能快速判断一次改动是否破坏了 PostgreSQL 主路径、LLM 降级、向量召回、二次归并、摘要或报告过滤语义。
 
 ### 交付物
 
-- PostgreSQL 集成测试
-- V2 regression corpus
-- 运行说明更新
-- 配置说明更新
-- 调参记录和已知限制
+- 测试分层和运行约定，区分离线单元测试、需要 PostgreSQL 的集成测试和 corpus 回归测试
+- 覆盖 source、scoring、tag、report、vector recall、secondary merge、digest filtering、fallback 行为的核心单元测试
+- 可通过环境变量启用的 PostgreSQL 集成测试，覆盖 migration runner 和关键仓储语义
+- V2 regression corpus 及样本格式说明，样本不依赖真实 NewsNow、DailyHotApi、WebExtract 或外部 LLM
+- `docs/running.md`、`docs/testing.md`、配置说明和 `config.example.yaml` 的一致性检查结果
+- 调参记录、默认阈值说明、已知限制和排错入口
+
+### 非目标
+
+- 不新增业务功能，不改变事件发现、评分、归并、推送、摘要或报告的产品语义
+- 不新增前端、动态 Dashboard、自建 Web 应用、登录、多用户或权限系统
+- 不做 LiteDB 历史迁移、LiteDB/PostgreSQL 双写或 provider 兼容层
+- CI 和 regression tests 不要求真实外部 LLM/API，不要求真实 NewsNow、DailyHotApi、WebExtract，也不要求任何密钥
+- Grafana 不是必选部署项；V2M7 的视图和 Grafana 文档可被测试或说明引用，但 V2M8 不把 Grafana 运行作为完成条件
 
 ### 任务清单
 
-#### `V2M8-T1` 补齐单元测试
+#### `V2M8-T1` 建立测试分层和运行约定
 
-- source capability
-- ranked scoring
-- flash scoring
-- tag generation
-- LLM cost calculation
-- vector recall merge
-- secondary merge hard filters
+- 在测试文档中定义三层测试：默认离线测试、PostgreSQL integration profile、V2 regression corpus
+- 明确默认 `dotnet test` 不依赖真实外部 HTTP 服务、外部 LLM、NewsNow、DailyHotApi 或密钥
+- 约定 PostgreSQL 集成测试只在 `TRENDREPORTER2_POSTGRES_TEST_CONNECTION` 等显式环境变量存在时启用
+- 约定 corpus 回归使用固定 fixture、fake source client、fake LLM client 和 fake embedding client
+- 说明本地完整验证命令、CI 默认验证命令和需要数据库时的扩展命令
+- 标明哪些失败属于环境未启用，哪些失败属于真实回归
 
-#### `V2M8-T2` 补齐 PostgreSQL 集成测试
+#### `V2M8-T2` 补齐核心单元测试
 
-- migration 重复执行
-- content upsert
-- event item unique
-- push log dedup
-- app state upsert
-- telemetry 写入
-- llm usage 写入
-- report snapshot 写入
+- 覆盖 source registry 和 source capability：NewsNow ranked、DailyHotApi ranked、flash source 和禁用 source 的行为
+- 覆盖 ranked scoring、flash scoring、source weight、freshness、persistence、trend signal 和 push threshold
+- 覆盖 blacklist policy、merged event 过滤、摘要候选过滤和静态报告 read model 过滤
+- 覆盖 WebExtract tags 优先、`llm.tagging` 缺失补全、tag 规范化和 tag 数量限制
+- 覆盖 LLM usage 成本计算、token 缺失处理、重试记录和失败降级
+- 覆盖 embedding text builder、source text hash、vector recall merge、候选去重、candidate limit 和 vector failure fallback
+- 覆盖 secondary merge 硬过滤、LLM 失败不合并、merge result 统计和 merged source event 不重复展示
+- 所有单元测试使用 fake clock、fake repository、fake client 或内存 fixture，不读取本地 `config.yaml`
 
-#### `V2M8-T3` 扩展回归样本
+#### `V2M8-T3` 补齐 PostgreSQL 集成测试
 
-- ranked news merge
-- ranked news no merge
-- stale reactivation
-- flash multi source merge
-- flash repeated follow up
-- topic noise no merge
-- blacklist
-- push dedup
-- vector recall improvement
-- secondary merge
-- tag generation
+- 覆盖 migration runner 首次执行、重复执行、checksum 不一致失败和空数据库初始化
+- 覆盖全部 V2 migration 文件可以按顺序执行，包括 embedding、secondary merge 和 monitoring views
+- 覆盖 content upsert、snapshot 写入、source sync、event item unique、push log dedup、app state upsert
+- 覆盖 fetch run、fetch run source、fetch run stage、llm usage、report snapshot、tag/event_tag 写入
+- 覆盖 embedding repository 的 hash skip、固定维度校验、event embedding upsert 和 vector recall 查询；pgvector 不可用时测试应明确跳过或给出环境原因
+- 覆盖 merge history 写入、已处理事件对判断、event item 迁移、source event 去激活和事务回滚
+- 覆盖 metrics schema 视图在空库和少量样本数据下可查询，不要求 Grafana 实例
+- 集成测试必须通过环境变量显式启用，CI 可以选择不开启数据库 profile，但不能误报为通过真实数据库验证
 
-#### `V2M8-T4` 更新运行文档
+#### `V2M8-T4` 建立 V2 regression corpus
 
-- PostgreSQL 准备方式
-- migration 执行方式
-- V2 配置示例
-- 常用命令
-- 静态报告输出目录
-- 常见错误处理
+- 在测试 fixture 中整理 V2 样本集，覆盖 ranked news merge、ranked news no merge、stale reactivation、flash multi source merge、flash repeated follow up、topic noise no merge
+- 增加 blacklist、push dedup、digest idempotency、tag generation、static report filtering、vector recall improvement 和 secondary merge 样本
+- 增加 LLM 未配置、LLM 返回异常、embedding 未配置、embedding 查询失败、WebExtract 未返回 tags 的降级样本
+- 每个样本使用固定输入和确定性 fake client，不能访问真实外部服务
+- 样本命名包含场景、输入类型和期望结果，便于单独定位失败原因
+- corpus 可以被默认离线测试运行，不要求 PostgreSQL；需要数据库验证的样本只验证仓储边界，不复用外部服务
 
-#### `V2M8-T5` 更新测试文档
+#### `V2M8-T5` 定义 corpus 样本格式和断言
 
-- 单元测试运行方式
-- PostgreSQL 集成测试运行方式
-- 需要的环境变量
-- CI 覆盖范围
+- 定义样本字段：scenario id、description、sources、content items、existing events、config overrides、fake LLM responses、fake embeddings、expected assertions
+- 断言至少支持 created event count、matched event id、not matched reason、score range、trigger reasons、push eligibility、digest inclusion、report inclusion、tags、merge decision 和 fallback path
+- 对分数类断言使用明确区间或稳定阈值，避免只检查非空结果
+- 对归并类断言同时检查正例和反例，避免只验证成功合并
+- 对降级类断言检查主流程继续运行、错误被记录、结果回落到规则路径或空结果
+- 对过滤类断言检查 `status = 'Merged'` 和 `is_blacklisted = true` 的事件不会进入 digest 和 report
+- 文档说明如何新增样本、如何运行单个 scenario、如何解释失败 diff
 
-#### `V2M8-T6` 整理调参记录
+#### `V2M8-T6` 更新运行文档
 
-- ranked 权重
-- flash 时间窗口
-- source weight
-- vector similarity threshold
-- secondary merge confidence threshold
-- LLM 成本观察
+- 更新 PostgreSQL 准备方式，包含 pgvector 扩展要求、数据库用户权限、连接串占位写法和本地初始化建议
+- 更新 migration 执行方式，说明 `migrateOnStartup`、validate、fetch once、digest once 和后台模式的差异
+- 更新常用命令，覆盖 restore、build、Release build、test、validate、fetch once、digest once 和后台运行
+- 说明 source registry 配置、NewsNow、DailyHotApi ranked、DailyHotApi flash 的本地替身或 fake 测试方式
+- 说明静态报告输出目录、report snapshot、digest 输出和排查入口
+- 增加常见错误处理：数据库不可达、pgvector 未安装、migration checksum 不一致、LLM 未配置、外部 source 不可达、配置校验失败
+
+#### `V2M8-T7` 更新配置文档
+
+- 对齐 `config.example.yaml`、`AppConfig` 和配置说明，确保字段名、默认值、必填项和弃用项一致
+- 说明 `database.provider = postgres`、`database.connectionString`、`database.migrateOnStartup` 和不支持 LiteDB provider 的原因
+- 说明 `sources` 下 NewsNow、DailyHotApi ranked、DailyHotApi flash 的最小配置和禁用方式
+- 说明 `analysis` 中 ranked、flash、candidate limit、vector threshold、secondary merge threshold、digest 和 report 相关配置
+- 说明 `llm.cluster`、`llm.judge`、`llm.tagging`、`llm.embedding` 均可未配置并降级，文档不得暗示 CI 必须提供密钥
+- 说明 `enrichment`、`filters`、`pushers`、`report`、`system` 的关键字段和安全注意事项
+- 检查示例配置只包含占位值，不包含真实 API key、推送密钥、生产连接串或个人路径
+
+#### `V2M8-T8` 更新测试文档和 CI profile
+
+- 在 `docs/testing.md` 中列出默认离线测试命令和预期覆盖范围
+- 说明 PostgreSQL 集成测试启用变量、数据库准备命令、跳过条件和失败排查方式
+- 说明 migration runner tests、repository tests、regression corpus tests 的职责边界
+- 给出 CI 默认 profile：restore、build、Release build、offline unit tests、validate config example
+- 给出可选 CI profile：带 PostgreSQL service 的 integration tests，仍不要求真实外部 LLM/API 或密钥
+- 说明 fake HTTP、fake LLM、fake embedding 的使用约定，避免测试意外访问网络
+- 记录哪些测试是稳定性 closeout 的门禁，哪些是本地扩展验证
+
+#### `V2M8-T9` 整理调参记录和已知限制
+
+- 记录 ranked 权重、flash 时间窗口、source weight、rank normalization、freshness decay、persistence window 的当前取值和调整依据
+- 记录 vector similarity threshold、candidate limit、embedding request budget、source text hash 策略和已观察到的召回边界
+- 记录 secondary merge similarity threshold、LLM confidence threshold、硬过滤规则和误合并风险
+- 记录 LLM 成本观察维度：cluster、judge、tagging、embedding 的调用量、token、估算成本和失败率
+- 记录 digest/report 过滤规则，尤其是 blacklisted 和 merged event 的处理
+- 整理已知限制：外部 source 质量波动、WebExtract tags 缺失、embedding 模型维度固定、pgvector 环境要求、Grafana 只是可选观察面
+- 为后续 V3 或维护任务留下清晰入口，但不把这些后续事项纳入 V2M8 范围
 
 ### 验收标准
 
-- V2 主链路有自动化测试覆盖
-- PostgreSQL 主路径有集成测试或明确 CI profile
-- 回归样本覆盖 ranked、flash、vector、merge 和 tag
-- 文档足够支持新环境部署和排错
+- `dotnet restore TrendReporter2.sln --configfile NuGet.Config` 成功
+- `dotnet build TrendReporter2.sln --no-restore -m:1 /p:UseSharedCompilation=false --verbosity minimal` 成功
+- `dotnet build TrendReporter2.sln --configuration Release --no-restore -m:1 /p:UseSharedCompilation=false --verbosity minimal` 成功
+- 默认 `dotnet test` 或约定的 offline test profile 可在无 PostgreSQL、无真实 NewsNow、无真实 DailyHotApi、无真实 WebExtract、无真实外部 LLM/API、无密钥的环境中运行并通过
+- PostgreSQL integration profile 可通过显式环境变量启用；未启用时测试报告能清楚说明跳过原因，不把跳过伪装成真实数据库通过
+- migration runner tests 覆盖首次执行、重复执行、checksum 不一致失败、全部 migration 顺序执行，以及 metrics views 在空库可查询
+- V2 regression corpus 覆盖 ranked、flash、topic noise、blacklist、push dedup、digest idempotency、tag、report、vector recall、secondary merge 和 stale reactivation
+- failure fallback tests 覆盖 source 抓取失败、WebExtract 缺失 tags、tagging LLM 失败、embedding 未配置、vector 查询失败、cluster/judge LLM 失败和 secondary merge LLM 失败，且主流程按设计继续或降级
+- 摘要和静态报告测试明确验证 `status = 'Merged'` 的 source event 与 `is_blacklisted = true` 的事件不会出现在 digest/report 输出中
+- PostgreSQL 仓储测试覆盖 content upsert、snapshot、event item unique、push log dedup、app state、telemetry、llm usage、tag/event_tag、report snapshot、embedding 和 merge history 的关键写入语义
+- `docs/running.md`、`docs/testing.md`、配置说明和本里程碑内容相互一致，足够支持新环境部署、测试启用、常见故障排查和后续维护
+- `config.example.yaml` 与当前 `AppConfig`、`AppConfigValidator` 和文档字段一致，只包含占位值，不包含真实 API key、推送密钥、生产数据库连接串或本地私有路径
+- V2M8 完成后，不新增动态 Dashboard、前端、LiteDB 迁移、双写、provider compatibility 或 tag subscription push 范围
 
 ## 4. 推荐开发顺序
 
-按依赖关系，建议严格按以下顺序推进：
+按依赖关系和当前完成状态，建议顺序保持如下：
 
 1. `V2M0` V2 基础准备
 2. `V2M1` PostgreSQL 持久化主链路
@@ -919,8 +968,8 @@
 5. `V2M4` Tag 与静态报告
 6. `V2M5` pgvector 候选召回
 7. `V2M6` 二次归并
-8. `V2M8` 稳定化、文档与回归
-9. `V2M7` Dashboard/Grafana 可选增强
+8. `V2M7` Dashboard/Grafana 可选增强
+9. `V2M8` 稳定化、文档与回归
 
 原因：
 
@@ -930,8 +979,8 @@
 - `V2M4` 的报告依赖稳定 read model 和 tag 表
 - `V2M5` 的 pgvector 依赖 PostgreSQL 和 LLM usage
 - `V2M6` 的二次归并依赖向量召回质量
-- `V2M8` 应贯穿执行，但在主要能力落地后集中收口
-- `V2M7` 不阻塞 V2 主线，可以最后做或跳过
+- `V2M7` 是可选增强，不阻塞 V2 主线；当前状态中它已在 V2M8 前完成，因此顺序应保留在 V2M8 之前
+- `V2M8` 的测试、文档和回归意识应贯穿各阶段，但集中收口应放在主能力和可选观察视图之后，作为 V2 的最终稳定化 closeout
 
 ## 5. 可并行任务
 
@@ -946,7 +995,7 @@
 | `P5` | `V2M4-T3` WebExtract tags、`V2M4-T4` WebExtract tag 规范化、`V2M4-T5` LLM tagging 补全、`V2M4-T7` report read model、`V2M4-T9` HTML renderer |
 | `P6` | `V2M5-T3` EmbeddingClient、`V2M5-T4` embedding 仓储、`V2M5-T8` 召回合并 |
 | `P7` | `V2M6-T3` 相似事件对发现、`V2M6-T4` 硬过滤、`V2M6-T10` 二次归并测试 |
-| `P8` | `V2M8-T1` 单元测试、`V2M8-T3` 回归样本、`V2M8-T4` 运行文档 |
+| `P8` | `V2M8-T1` 测试分层、`V2M8-T2` 单元测试、`V2M8-T4` regression corpus、`V2M8-T6` 运行文档 |
 
 ## 6. 最小可运行版本
 

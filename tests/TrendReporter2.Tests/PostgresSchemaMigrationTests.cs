@@ -316,7 +316,8 @@ public sealed class PostgresSchemaMigrationTests
 
             var result = await runner.RunAsync(CancellationToken.None);
 
-            Assert.Equal(new SqlMigrationRunResult(7, 0), result);
+            var migrationCount = SqlMigrationRunner.DiscoverMigrations(InitMigrationDirectory()).Count;
+            Assert.Equal(new SqlMigrationRunResult(migrationCount, 0), result);
             await using var verifyConnection = await dataSource.OpenConnectionAsync();
             var tables = (await verifyConnection.QueryAsync<string>("""
             select table_name
