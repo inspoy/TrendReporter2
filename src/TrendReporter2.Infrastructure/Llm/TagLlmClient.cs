@@ -157,7 +157,7 @@ public sealed class TagLlmClient : ITagLlmClient
                 new
                 {
                     role = "system",
-                    content = "你是一个新闻标签抽取助手。只返回 JSON 对象，格式为 {\"tags\":[{\"name\":string,\"displayName\":string,\"category\":string,\"confidence\":number}]}。category 只能是 topic、entity、domain、risk。最多返回 6 个对检索有用的短标签。"
+                    content = "你是一个新闻标签抽取助手。只返回 JSON 对象，格式为 {\"tags\":[{\"name\":string,\"displayName\":string,\"category\":string,\"confidence\":number}]}。category 只能是 topic、entity、domain、risk。返回 3-5 个对检索有用的短标签。"
                 },
                 new
                 {
@@ -207,10 +207,11 @@ public sealed class TagLlmClient : ITagLlmClient
             }
 
             _logger.LogInformation(
-                "标签 LLM 解析完成，内容条目编号={ContentItemId}，标签数={TagCount}，耗时{ElapsedSec:F1}s。",
+                "标签 LLM 解析完成，内容条目编号={ContentItemId}，标签数={TagCount}，耗时{ElapsedSec:F1}s，标签={Tags}。",
                 contentItemId,
                 tags.Count,
-                elapsedMs / 1000f);
+                elapsedMs / 1000f,
+                JsonConvert.SerializeObject(tags.Select(t => new { t.Name, t.DisplayName, t.Category, t.Confidence })));
             return new OpenAiChatParseResult<TagLlmResult>(new TagLlmResult(tags), true, null, requestId, tokens);
         }
         catch (JsonException ex)

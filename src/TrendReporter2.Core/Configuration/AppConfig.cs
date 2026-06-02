@@ -99,6 +99,8 @@ public sealed class EventAnalysisConfig
 
     public double MergeThreshold { get; init; } = 0.82;
 
+    public double RuleMergeThreshold { get; init; } = 0.55;
+
     public double StaleMergeThreshold { get; init; } = 0.88;
 
     public double MergeSimilarityThreshold { get; init; } = 0.7;

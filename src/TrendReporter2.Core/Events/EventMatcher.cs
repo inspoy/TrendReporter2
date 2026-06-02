@@ -55,13 +55,14 @@ public sealed class EventMatcher : IEventMatcher
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            var commitMatch = hasCommittedEventChange && ShouldRevalidateBeforeCommit(precomputedMatch.Candidates, precomputedMatch.Match)
+            var commitMatch = hasCommittedEventChange && ShouldRevalidateBeforeCommit(precomputedMatch.Candidates, precomputedMatch.Match, precomputedMatch.useLlm)
                     ? await RecallAndMatchAsync(runId, precomputedMatch.Item, now, cancellationToken)
                 : precomputedMatch;
             var targetEvent = await ResolveTargetEventAsync(
                 commitMatch.Item,
                 commitMatch.Candidates,
                 commitMatch.Match,
+                commitMatch.useLlm,
                 now,
                 cancellationToken);
             hasCommittedEventChange = true;
@@ -146,6 +147,29 @@ public sealed class EventMatcher : IEventMatcher
         CancellationToken cancellationToken)
     {
         var candidates = await _candidateService.RecallAsync(item, now, cancellationToken);
+
+        // 规则召回高置信度时跳过 LLM，直接使用 top candidate
+        var topCandidate = candidates.FirstOrDefault();
+        if (topCandidate is not null &&
+            topCandidate.Score >= _config.Analysis.Event.RuleMergeThreshold &&
+            topCandidate.MatchedFeatures.Contains("token_overlap") &&
+            topCandidate.MatchedFeatures.Contains("char_ngram_jaccard"))
+        {
+            var ruleMatch = new ClusterMatchResult(
+                ClusterDecisions.SameEvent,
+                topCandidate.Event.Id,
+                topCandidate.Event.CanonicalTitle,
+                topCandidate.Event.Summary,
+                topCandidate.Score,
+                "规则召回高置信度匹配（跳过 LLM）");
+            _logger.LogInformation(
+                "跳过聚类 LLM（规则召回匹配），内容条目编号={ContentItemId}，目标事件={EventTitle}，规则得分={Score}",
+                item.Id,
+                topCandidate.Event.CanonicalTitle,
+                topCandidate.Score);
+            return new PrecomputedEventMatch(item, candidates, ruleMatch, false);
+        }
+
         var useLlm = candidates.Count > 0 && _clusterLlmClient.IsConfigured;
         var match = useLlm
             ? await _clusterLlmClient.MatchAsync(new ClusterMatchRequest(runId, item, candidates), cancellationToken)
@@ -156,23 +180,25 @@ public sealed class EventMatcher : IEventMatcher
 
     private bool ShouldRevalidateBeforeCommit(
         IReadOnlyList<EventCandidate> candidates,
-        ClusterMatchResult match)
-        => !CanUseExistingTarget(candidates, match);
+        ClusterMatchResult match,
+        bool useLlm)
+        => !CanUseExistingTarget(candidates, match, useLlm);
 
     private bool CanUseExistingTarget(
         IReadOnlyList<EventCandidate> candidates,
-        ClusterMatchResult match)
+        ClusterMatchResult match,
+        bool useLlm)
     {
         var matchedCandidate = FindMatchedCandidate(candidates, match);
-        return CanMergeSameEvent(match, matchedCandidate) || CanMergeFollowUp(match, matchedCandidate);
+        return CanMergeSameEvent(match, matchedCandidate, useLlm) || CanMergeFollowUp(match, matchedCandidate, useLlm);
     }
 
-    private bool CanMergeSameEvent(ClusterMatchResult match, EventCandidate? matchedCandidate)
+    private bool CanMergeSameEvent(ClusterMatchResult match, EventCandidate? matchedCandidate, bool useLlm)
         => match.Decision == ClusterDecisions.SameEvent &&
-            match.Confidence >= _config.Analysis.Event.MergeThreshold &&
+            match.Confidence >= (useLlm ? _config.Analysis.Event.MergeThreshold : _config.Analysis.Event.RuleMergeThreshold) &&
             matchedCandidate is not null;
 
-    private bool CanMergeFollowUp(ClusterMatchResult match, EventCandidate? matchedCandidate)
+    private bool CanMergeFollowUp(ClusterMatchResult match, EventCandidate? matchedCandidate, bool useLlm)
         => match.Decision == ClusterDecisions.FollowUp &&
             match.Confidence >= _config.Analysis.Event.StaleMergeThreshold &&
             matchedCandidate is not null;
@@ -181,12 +207,13 @@ public sealed class EventMatcher : IEventMatcher
         ContentItem item,
         IReadOnlyList<EventCandidate> candidates,
         ClusterMatchResult match,
+        bool useLlm,
         DateTimeOffset now,
         CancellationToken cancellationToken)
     {
         var matchedCandidate = FindMatchedCandidate(candidates, match);
-        var canMergeSameEvent = CanMergeSameEvent(match, matchedCandidate);
-        var canMergeFollowUp = CanMergeFollowUp(match, matchedCandidate);
+        var canMergeSameEvent = CanMergeSameEvent(match, matchedCandidate, useLlm);
+        var canMergeFollowUp = CanMergeFollowUp(match, matchedCandidate, useLlm);
 
         if (!canMergeSameEvent && !canMergeFollowUp)
         {

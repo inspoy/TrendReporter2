@@ -13,8 +13,8 @@ select
     count(*) filter (where status = 'partial') as partial_runs,
     count(*) filter (where status = 'failed') as failed_runs,
     round(
-        100.0 * count(*) filter (where status in ('succeeded', 'partial'))
-        / nullif(count(*), 0),
+        (100.0 * count(*) filter (where status in ('succeeded', 'partial'))
+        / nullif(count(*), 0))::numeric,
         2
     ) as success_rate_pct,
     coalesce(sum(estimated_llm_cost), 0) as total_llm_cost
@@ -36,8 +36,8 @@ select
     count(*) filter (where frs.status = 'succeeded') as succeeded_fetches,
     count(*) filter (where frs.status = 'failed') as failed_fetches,
     round(
-        100.0 * count(*) filter (where frs.status = 'failed')
-        / nullif(count(*), 0),
+        (100.0 * count(*) filter (where frs.status = 'failed')
+        / nullif(count(*), 0))::numeric,
         2
     ) as failure_rate_pct,
     string_agg(
@@ -109,8 +109,8 @@ select
     sum(estimated_cost) as total_cost,
     count(*) as call_count,
     round(
-        100.0 * sum(estimated_cost)
-        / nullif((select sum(estimated_cost) from llm_usage), 0),
+        (100.0 * sum(estimated_cost)
+        / nullif((select sum(estimated_cost) from llm_usage), 0))::numeric,
         2
     ) as cost_pct
 from llm_usage
@@ -184,11 +184,11 @@ select
         else '80-100'
     end as score_bucket,
     count(*) as event_count,
-    round(avg(ess.total_score), 1) as avg_score_in_bucket,
-    round(avg(ess.coverage_score), 2) as avg_coverage_score,
-    round(avg(ess.rank_score), 2) as avg_rank_score,
-    round(avg(ess.flash_score), 2) as avg_flash_score,
-    round(avg(ess.heat_value), 2) as avg_heat
+    round(avg(ess.total_score)::numeric, 1) as avg_score_in_bucket,
+    round(avg(ess.coverage_score)::numeric, 2) as avg_coverage_score,
+    round(avg(ess.rank_score)::numeric, 2) as avg_rank_score,
+    round(avg(ess.flash_score)::numeric, 2) as avg_flash_score,
+    round(avg(ess.heat_value)::numeric, 2) as avg_heat
 from event_score_snapshot ess
 join event e on ess.event_id = e.id
 where ess.run_id = (select id from latest_run)
@@ -209,7 +209,7 @@ select
     t.category,
     t.name as tag_name,
     count(distinct et.event_id) as event_count,
-    round(avg(et.confidence), 2) as avg_confidence
+    round(avg(et.confidence)::numeric, 2) as avg_confidence
 from event_tag et
 join tag t on et.tag_id = t.id
 join event e on et.event_id = e.id
@@ -251,7 +251,7 @@ select
     l.status,
     l.started_at,
     l.finished_at,
-    round(extract(epoch from (l.finished_at - l.started_at)) / 60.0, 1) as duration_minutes,
+    round((extract(epoch from (l.finished_at - l.started_at)) / 60.0)::numeric, 1) as duration_minutes,
     l.source_count,
     l.success_source_count,
     l.failure_source_count,
@@ -318,15 +318,15 @@ select
     coalesce(r.total_runs, 0) as total_runs,
     case
         when r.total_runs > 0
-        then round(100.0 * r.successful_runs / r.total_runs, 2)
+        then round((100.0 * r.successful_runs / r.total_runs)::numeric, 2)
         else null
     end as success_rate_pct,
     coalesce(r.total_llm_cost, 0) as total_llm_cost,
-    round(coalesce(r.total_llm_cost / nullif(r.total_runs, 0), 0), 6) as avg_llm_cost_per_run,
-    round(coalesce(r.avg_duration_seconds / 60.0, 0), 1) as avg_run_duration_minutes,
+    round(coalesce(r.total_llm_cost / nullif(r.total_runs, 0), 0)::numeric, 6) as avg_llm_cost_per_run,
+    round(coalesce(r.avg_duration_seconds / 60.0, 0)::numeric, 1) as avg_run_duration_minutes,
     coalesce(e.new_events, 0) as new_events,
     coalesce(a.active_event_count, 0) as active_events,
-    round(coalesce(e.new_events / nullif(r.total_runs, 0), 0), 1) as avg_new_events_per_run,
+    round(coalesce(e.new_events::numeric / nullif(r.total_runs, 0), 0)::numeric, 1) as avg_new_events_per_run,
     coalesce(p.total_pushes, 0) as total_pushes,
     coalesce(p.instant_pushes, 0) as instant_pushes,
     coalesce(p.digest_pushes, 0) as digest_pushes,

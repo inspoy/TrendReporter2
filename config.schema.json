@@ -298,6 +298,13 @@
           "minimum": 0,
           "maximum": 1
         },
+        "ruleMergeThreshold": {
+          "type": "number",
+          "description": "规则召回匹配阈值 — 候选事件得分超过此值且同时匹配 token 和 ngram 时跳过 LLM 直接归并",
+          "default": 0.55,
+          "minimum": 0,
+          "maximum": 1
+        },
         "staleMergeThreshold": {
           "type": "number",
           "description": "陈旧/复活事件在线归并阈值 — 应高于普通归并阈值以避免误归并",
