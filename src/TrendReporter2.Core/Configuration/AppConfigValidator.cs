@@ -44,6 +44,7 @@ public static class AppConfigValidator
         Require(config.Analysis.Event.ArchiveRecallDays > 0, "analysis.event.archiveRecallDays 必须大于 0。");
         Require(config.Analysis.Event.CandidateLimit > 0, "analysis.event.candidateLimit 必须大于 0。");
         Require(IsRatio(config.Analysis.Event.MergeThreshold), "analysis.event.mergeThreshold 必须在 0 到 1 之间。");
+        Require(IsRatio(config.Analysis.Event.RuleMergeThreshold), "analysis.event.ruleMergeThreshold 必须在 0 到 1 之间。");
         Require(IsRatio(config.Analysis.Event.StaleMergeThreshold), "analysis.event.staleMergeThreshold 必须在 0 到 1 之间。");
         Require(config.Analysis.Event.MinTrendSamples > 0, "analysis.event.minTrendSamples 必须大于 0。");
         Require(config.Analysis.Event.MinTrendHeat >= 0, "analysis.event.minTrendHeat 不能为负数。");

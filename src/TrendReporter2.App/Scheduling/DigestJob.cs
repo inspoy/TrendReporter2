@@ -70,6 +70,7 @@ public sealed class DigestJob : IDigestJob
 
         var since = now.AddHours(-Math.Max(1, _config.Analysis.HistoryHours));
         var candidates = await _eventRepository.LoadDigestCandidatesAsync(since, Math.Max(1, _config.Analysis.Push.PushCount), cancellationToken);
+        var loadedCandidateCount = candidates.Count;
         var newlyBlacklisted = candidates
             .Select(candidate => candidate.Event)
             .Where(eventAggregate => EventBlacklistPolicy.Apply(eventAggregate, _config.Filters))
@@ -87,6 +88,23 @@ public sealed class DigestJob : IDigestJob
         candidates = candidates
             .Where(candidate => !candidate.Event.IsBlacklisted)
             .ToList();
+
+        _logger.LogInformation(
+            "摘要候选过滤完成。日期={LocalDate}，时段={SlotTime}，加载候选数={LoadedCandidateCount}，新增黑名单数={NewlyBlacklistedCount}，选中候选数={SelectedCandidateCount}。",
+            localDate,
+            slotTime,
+            loadedCandidateCount,
+            newlyBlacklisted.Count,
+            candidates.Count);
+        if (_logger.IsEnabled(LogLevel.Debug))
+        {
+            _logger.LogDebug(
+                "摘要候选明细。日期={LocalDate}，时段={SlotTime}，选中事件={SelectedEventIds}，新增黑名单事件={NewlyBlacklistedEventIds}。",
+                localDate,
+                slotTime,
+                string.Join(',', candidates.Select(candidate => candidate.Event.Id)),
+                string.Join(',', newlyBlacklisted.Select(eventAggregate => eventAggregate.Id)));
+        }
 
         var message = candidates.Count == 0
             ? BuildSkippedMessage(dateText, slotTime, dedupKey)

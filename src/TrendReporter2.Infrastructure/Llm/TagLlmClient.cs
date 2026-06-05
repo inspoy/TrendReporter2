@@ -211,7 +211,7 @@ public sealed class TagLlmClient : ITagLlmClient
                 contentItemId,
                 tags.Count,
                 elapsedMs / 1000f,
-                JsonConvert.SerializeObject(tags.Select(t => new { t.Name, t.DisplayName, t.Category, t.Confidence })));
+                JsonConvert.SerializeObject(tags.GroupBy(t => t.Category).ToDictionary(g => g.Key, g => g.Select(t => t.DisplayName))));
             return new OpenAiChatParseResult<TagLlmResult>(new TagLlmResult(tags), true, null, requestId, tokens);
         }
         catch (JsonException ex)

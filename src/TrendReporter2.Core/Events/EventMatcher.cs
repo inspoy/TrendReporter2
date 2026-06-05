@@ -43,7 +43,8 @@ public sealed class EventMatcher : IEventMatcher
     {
         var items = await _repository.LoadUnmappedRunContentItemsAsync(runId, cancellationToken);
         await _repository.MarkStaleEventsAsync(now, _config.Analysis.Event.StaleHours, cancellationToken);
-        var precomputedMatches = await PrecomputeMatchesAsync(runId, items, now, cancellationToken);
+        var counters = new MatchRunCounters();
+        var precomputedMatches = await PrecomputeMatchesAsync(runId, items, now, counters, cancellationToken);
         var created = 0;
         var merged = 0;
         var reactivated = 0;
@@ -55,27 +56,30 @@ public sealed class EventMatcher : IEventMatcher
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            var commitMatch = hasCommittedEventChange && ShouldRevalidateBeforeCommit(precomputedMatch.Candidates, precomputedMatch.Match, precomputedMatch.useLlm)
-                    ? await RecallAndMatchAsync(runId, precomputedMatch.Item, now, cancellationToken)
+            var commitMatch = hasCommittedEventChange && ShouldRevalidateBeforeCommit(precomputedMatch.Candidates, precomputedMatch.Match, precomputedMatch.UseLlm)
+                    ? await RevalidateBeforeCommitAsync(runId, precomputedMatch, now, counters, cancellationToken)
                 : precomputedMatch;
             var targetEvent = await ResolveTargetEventAsync(
                 commitMatch.Item,
                 commitMatch.Candidates,
                 commitMatch.Match,
-                commitMatch.useLlm,
+                commitMatch.UseLlm,
                 now,
                 cancellationToken);
             hasCommittedEventChange = true;
             if (targetEvent.CreatedNew)
             {
                 created++;
+                counters.IncrementCreated();
             }
             else
             {
                 merged++;
+                counters.IncrementMerged();
                 if (targetEvent.Reactivated)
                 {
                     reactivated++;
+                    counters.IncrementReactivated();
                 }
             }
 
@@ -92,12 +96,33 @@ public sealed class EventMatcher : IEventMatcher
             if (mappedNow)
             {
                 mapped++;
+                counters.IncrementMapped();
             }
             else
             {
                 skipped++;
+                counters.IncrementSkipped();
             }
+
+            LogMatchDecisionDebug(commitMatch, targetEvent, mappedNow);
         }
+
+        var snapshot = counters.Snapshot();
+        _logger.LogInformation(
+            "事件匹配运行完成。RunId={RunId}，条目数={ItemCount}，无候选={NoCandidateCount}，规则跳过={RuleSkipCount}，Cluster调用={ClusterCalledCount}，Cluster未配置={ClusterUnconfiguredCount}，重校验={RevalidatedCount}，重校验复用={RevalidationReusedCount}，新建={CreatedCount}，合并={MergedCount}，重新激活={ReactivatedCount}，映射={MappedCount}，跳过={SkippedCount}。",
+            runId,
+            items.Count,
+            snapshot.NoCandidateCount,
+            snapshot.RuleSkipCount,
+            snapshot.ClusterCalledCount,
+            snapshot.ClusterUnconfiguredCount,
+            snapshot.RevalidatedCount,
+            snapshot.RevalidationReusedCount,
+            snapshot.CreatedCount,
+            snapshot.MergedCount,
+            snapshot.ReactivatedCount,
+            snapshot.MappedCount,
+            snapshot.SkippedCount);
 
         return new EventMatchRunResult(items.Count, created, merged, reactivated, mapped, skipped);
     }
@@ -106,6 +131,7 @@ public sealed class EventMatcher : IEventMatcher
         string runId,
         IReadOnlyList<ContentItem> items,
         DateTimeOffset now,
+        MatchRunCounters counters,
         CancellationToken cancellationToken)
     {
         var maxParallelLlm = Math.Max(1, _config.System.MaxParallelLlm);
@@ -121,7 +147,7 @@ public sealed class EventMatcher : IEventMatcher
             try
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                var match =  await RecallAndMatchAsync(runId, item, now, cancellationToken);
+                var match = await RecallAndMatchAsync(runId, item, now, counters, cancellationToken);
                 var p = Interlocked.Increment(ref progress);
                 if (p % 10 == 0)
                 {
@@ -144,9 +170,57 @@ public sealed class EventMatcher : IEventMatcher
         string runId,
         ContentItem item,
         DateTimeOffset now,
+        MatchRunCounters counters,
         CancellationToken cancellationToken)
     {
         var candidates = await _candidateService.RecallAsync(item, now, cancellationToken);
+        var candidateFingerprint = BuildCandidateFingerprint(candidates);
+        var match = await MatchCandidatesAsync(runId, item, candidates, counters, cancellationToken);
+        return new PrecomputedEventMatch(item, candidates, candidateFingerprint, match.Result, match.UseLlm);
+    }
+
+    private async Task<PrecomputedEventMatch> RevalidateBeforeCommitAsync(
+        string runId,
+        PrecomputedEventMatch precomputedMatch,
+        DateTimeOffset now,
+        MatchRunCounters counters,
+        CancellationToken cancellationToken)
+    {
+        counters.IncrementRevalidated();
+        var candidates = await _candidateService.RecallAsync(precomputedMatch.Item, now, cancellationToken);
+        var candidateFingerprint = BuildCandidateFingerprint(candidates);
+        if (string.Equals(candidateFingerprint, precomputedMatch.CandidateFingerprint, StringComparison.Ordinal))
+        {
+            counters.IncrementRevalidationReused();
+            if (_logger.IsEnabled(LogLevel.Debug))
+            {
+                _logger.LogDebug(
+                    "复用预计算聚类结果，内容条目编号={ContentItemId}，候选指纹={CandidateFingerprint}，候选数={CandidateCount}，决策={Decision}，目标事件={EventId}。",
+                    precomputedMatch.Item.Id,
+                    candidateFingerprint,
+                    candidates.Count,
+                    precomputedMatch.Match.Decision,
+                    precomputedMatch.Match.EventId);
+            }
+
+            return precomputedMatch with { Candidates = candidates };
+        }
+
+        var match = await MatchCandidatesAsync(runId, precomputedMatch.Item, candidates, counters, cancellationToken);
+        return new PrecomputedEventMatch(precomputedMatch.Item, candidates, candidateFingerprint, match.Result, match.UseLlm);
+    }
+
+    private async Task<CandidateMatchResult> MatchCandidatesAsync(
+        string runId,
+        ContentItem item,
+        IReadOnlyList<EventCandidate> candidates,
+        MatchRunCounters counters,
+        CancellationToken cancellationToken)
+    {
+        if (candidates.Count == 0)
+        {
+            counters.IncrementNoCandidate();
+        }
 
         // 规则召回高置信度时跳过 LLM，直接使用 top candidate
         var topCandidate = candidates.FirstOrDefault();
@@ -155,6 +229,7 @@ public sealed class EventMatcher : IEventMatcher
             topCandidate.MatchedFeatures.Contains("token_overlap") &&
             topCandidate.MatchedFeatures.Contains("char_ngram_jaccard"))
         {
+            counters.IncrementRuleSkip();
             var ruleMatch = new ClusterMatchResult(
                 ClusterDecisions.SameEvent,
                 topCandidate.Event.Id,
@@ -167,15 +242,24 @@ public sealed class EventMatcher : IEventMatcher
                 item.Id,
                 topCandidate.Event.CanonicalTitle,
                 topCandidate.Score);
-            return new PrecomputedEventMatch(item, candidates, ruleMatch, false);
+            return new CandidateMatchResult(ruleMatch, false);
         }
 
         var useLlm = candidates.Count > 0 && _clusterLlmClient.IsConfigured;
+        if (useLlm)
+        {
+            counters.IncrementClusterCalled();
+        }
+        else if (candidates.Count > 0)
+        {
+            counters.IncrementClusterUnconfigured();
+        }
+
         var match = useLlm
             ? await _clusterLlmClient.MatchAsync(new ClusterMatchRequest(runId, item, candidates), cancellationToken)
             : ClusterMatchResult.CreateNew(candidates.Count == 0 ? "没有召回的候选事件" : "聚类 LLM 未配置");
 
-        return new PrecomputedEventMatch(item, candidates, match, useLlm);
+        return new CandidateMatchResult(match, useLlm);
     }
 
     private bool ShouldRevalidateBeforeCommit(
@@ -233,6 +317,30 @@ public sealed class EventMatcher : IEventMatcher
         => string.IsNullOrWhiteSpace(match.EventId)
             ? null
             : candidates.FirstOrDefault(candidate => candidate.Event.Id == match.EventId);
+
+    private void LogMatchDecisionDebug(PrecomputedEventMatch commitMatch, EventMatchOutcome targetEvent, bool mappedNow)
+    {
+        if (!_logger.IsEnabled(LogLevel.Debug))
+        {
+            return;
+        }
+
+        _logger.LogDebug(
+            "事件匹配决策。内容条目编号={ContentItemId}，候选数={CandidateCount}，候选事件={CandidateEventIds}，候选指纹={CandidateFingerprint}，使用LLM={UseLlm}，决策={Decision}，决策事件={DecisionEventId}，置信度={Confidence:F4}，结果事件={TargetEventId}，新建={CreatedNew}，重新激活={Reactivated}，已映射={MappedNow}，原因={Reason}。",
+            commitMatch.Item.Id,
+            commitMatch.Candidates.Count,
+            string.Join(',', commitMatch.Candidates.Select(candidate => candidate.Event.Id)),
+            commitMatch.CandidateFingerprint,
+            commitMatch.UseLlm,
+            commitMatch.Match.Decision,
+            commitMatch.Match.EventId,
+            commitMatch.Match.Confidence,
+            targetEvent.Event.Id,
+            targetEvent.CreatedNew,
+            targetEvent.Reactivated,
+            mappedNow,
+            targetEvent.Reason);
+    }
 
     private static EventAggregate CreateEvent(ContentItem item, ClusterMatchResult match, DateTimeOffset now)
     {
@@ -467,6 +575,27 @@ public sealed class EventMatcher : IEventMatcher
     private static string BuildEventItemId(string eventId, string contentItemId)
         => $"ei:{ShortHash($"{eventId}|{contentItemId}")}";
 
+    private static string BuildCandidateFingerprint(IReadOnlyList<EventCandidate> candidates)
+    {
+        if (candidates.Count == 0)
+        {
+            return ShortHash("empty");
+        }
+
+        var builder = new StringBuilder();
+        foreach (var candidate in candidates)
+        {
+            builder.Append(candidate.Event.Id)
+                .Append('|')
+                .Append(candidate.Score.ToString("R", System.Globalization.CultureInfo.InvariantCulture))
+                .Append('|')
+                .AppendJoin(',', candidate.MatchedFeatures.Order(StringComparer.OrdinalIgnoreCase))
+                .Append(';');
+        }
+
+        return ShortHash(builder.ToString());
+    }
+
     private static string ShortHash(string value)
     {
         var hash = SHA256.HashData(Encoding.UTF8.GetBytes(value.Trim()));
@@ -476,8 +605,11 @@ public sealed class EventMatcher : IEventMatcher
     private sealed record PrecomputedEventMatch(
         ContentItem Item,
         IReadOnlyList<EventCandidate> Candidates,
+        string CandidateFingerprint,
         ClusterMatchResult Match,
-        bool useLlm);
+        bool UseLlm);
+
+    private sealed record CandidateMatchResult(ClusterMatchResult Result, bool UseLlm);
 
     private sealed record EventMatchOutcome(
         EventAggregate Event,
@@ -485,4 +617,58 @@ public sealed class EventMatcher : IEventMatcher
         bool Reactivated,
         double Confidence,
         string Reason);
+
+    private sealed class MatchRunCounters
+    {
+        private int _noCandidateCount;
+        private int _ruleSkipCount;
+        private int _clusterCalledCount;
+        private int _clusterUnconfiguredCount;
+        private int _revalidatedCount;
+        private int _revalidationReusedCount;
+        private int _createdCount;
+        private int _mergedCount;
+        private int _reactivatedCount;
+        private int _mappedCount;
+        private int _skippedCount;
+
+        public void IncrementNoCandidate() => Interlocked.Increment(ref _noCandidateCount);
+        public void IncrementRuleSkip() => Interlocked.Increment(ref _ruleSkipCount);
+        public void IncrementClusterCalled() => Interlocked.Increment(ref _clusterCalledCount);
+        public void IncrementClusterUnconfigured() => Interlocked.Increment(ref _clusterUnconfiguredCount);
+        public void IncrementRevalidated() => Interlocked.Increment(ref _revalidatedCount);
+        public void IncrementRevalidationReused() => Interlocked.Increment(ref _revalidationReusedCount);
+        public void IncrementCreated() => Interlocked.Increment(ref _createdCount);
+        public void IncrementMerged() => Interlocked.Increment(ref _mergedCount);
+        public void IncrementReactivated() => Interlocked.Increment(ref _reactivatedCount);
+        public void IncrementMapped() => Interlocked.Increment(ref _mappedCount);
+        public void IncrementSkipped() => Interlocked.Increment(ref _skippedCount);
+
+        public MatchRunCounterSnapshot Snapshot()
+            => new(
+                Volatile.Read(ref _noCandidateCount),
+                Volatile.Read(ref _ruleSkipCount),
+                Volatile.Read(ref _clusterCalledCount),
+                Volatile.Read(ref _clusterUnconfiguredCount),
+                Volatile.Read(ref _revalidatedCount),
+                Volatile.Read(ref _revalidationReusedCount),
+                Volatile.Read(ref _createdCount),
+                Volatile.Read(ref _mergedCount),
+                Volatile.Read(ref _reactivatedCount),
+                Volatile.Read(ref _mappedCount),
+                Volatile.Read(ref _skippedCount));
+    }
+
+    private sealed record MatchRunCounterSnapshot(
+        int NoCandidateCount,
+        int RuleSkipCount,
+        int ClusterCalledCount,
+        int ClusterUnconfiguredCount,
+        int RevalidatedCount,
+        int RevalidationReusedCount,
+        int CreatedCount,
+        int MergedCount,
+        int ReactivatedCount,
+        int MappedCount,
+        int SkippedCount);
 }

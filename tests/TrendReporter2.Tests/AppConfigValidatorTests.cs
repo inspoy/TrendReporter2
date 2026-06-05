@@ -80,6 +80,7 @@ public sealed class AppConfigValidatorTests
                     ArchiveRecallDays = 0,
                     CandidateLimit = 0,
                     MergeThreshold = -0.1,
+                    RuleMergeThreshold = 1.1,
                     StaleMergeThreshold = 1.1,
                     MinTrendSamples = 0,
                     MinTrendHeat = -1
@@ -126,6 +127,7 @@ public sealed class AppConfigValidatorTests
         Assert.Contains("analysis.push.pushCount 必须大于 0。", exception.Errors);
         Assert.Contains("analysis.push.pushTime 包含无效时间 '25:61'，期望格式为 HH:mm。", exception.Errors);
         Assert.Contains("analysis.event.normalizedRankThreshold 必须在 0 到 1 之间。", exception.Errors);
+        Assert.Contains("analysis.event.ruleMergeThreshold 必须在 0 到 1 之间。", exception.Errors);
         Assert.Contains("llm.cluster.pricing.cacheRead 必须是有限且非负的数字。", exception.Errors);
         Assert.Contains("llm.judge.pricing.input 必须是有限且非负的数字。", exception.Errors);
         Assert.Contains("llm.tagging.pricing.output 必须是有限且非负的数字。", exception.Errors);

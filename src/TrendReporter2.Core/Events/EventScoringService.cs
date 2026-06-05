@@ -1,6 +1,7 @@
 using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
+using System.Collections.Concurrent;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
 using TrendReporter2.Core.Configuration;
@@ -60,8 +61,7 @@ public sealed class EventScoringService : IEventScoringService
             .GroupBy(snapshot => snapshot.EventId, StringComparer.Ordinal)
             .ToDictionary(group => group.Key, group => group.OrderBy(snapshot => snapshot.CalculatedAt).ToList(), StringComparer.Ordinal);
 
-        var eligibleCount = 0;
-        var pushedCount = 0;
+        var counters = new ScoringRunCounters();
         var maxParallelLlm = Math.Max(1, _config.System.MaxParallelLlm);
         using var semaphore = new SemaphoreSlim(maxParallelLlm);
         var tasks = inputs.Select(async input =>
@@ -72,31 +72,55 @@ public sealed class EventScoringService : IEventScoringService
                 cancellationToken.ThrowIfCancellationRequested();
                 var priorSnapshots = recentByEvent.GetValueOrDefault(input.Event.Id) ?? [];
                 EventBlacklistPolicy.Apply(input.Event, _config.Filters);
+                if (input.Event.IsBlacklisted)
+                {
+                    counters.IncrementBlacklisted();
+                }
+
                 var score = BuildBaseScore(runId, input, priorSnapshots, runStartedAt, now);
                 var eligibleBeforeJudge = IsEligible(score, input.Event, runStartedAt, now);
                 var reactivated = IsReactivated(input.Event, runStartedAt, now);
                 var hasEnoughSources = score.UniqueSourceCount >= _config.Analysis.Event.SourceCount;
+                var shouldCallJudge = reactivated || (hasEnoughSources && (eligibleBeforeJudge || IsNearEligibility(score)));
+                var judgeGateReason = shouldCallJudge
+                    ? reactivated ? "reactivated" : eligibleBeforeJudge ? "eligible_before_judge" : "near_eligibility"
+                    : hasEnoughSources ? "not_near_eligibility" : "source_count_below_threshold";
 
-                var judge = reactivated || (hasEnoughSources && (eligibleBeforeJudge || IsNearEligibility(score)))
+                if (shouldCallJudge)
+                {
+                    counters.IncrementJudgeCalled();
+                }
+
+                var judge = shouldCallJudge
                     ? await _judgeLlmClient.JudgeAsync(new JudgeRequest(runId, input.Event, score, input.Evidence, score.TriggerReasons), cancellationToken)
                     : JudgeResult.Neutral("事件未达到评判阈值");
+                if (IsJudgePromoted(judge))
+                {
+                    counters.IncrementJudgePromoted();
+                }
 
                 ApplyJudge(score, judge);
                 var eligible = IsEligible(score, input.Event, runStartedAt, now);
                 if (eligible)
                 {
-                    Interlocked.Increment(ref eligibleCount);
+                    counters.IncrementEligible();
+                }
+                else
+                {
+                    counters.IncrementRejection(BuildEligibilityRejectReason(input.Event));
                 }
 
                 var progress = BuildProgress(input, score, priorSnapshots, judge, runStartedAt, now);
                 ApplyProgress(input.Event, progress, judge, now);
                 score.CurrentStage = input.Event.CurrentStage;
+                string? pushRejectReason = null;
 
                 if (eligible)
                 {
                     var shouldPush = ShouldPush(input.Event, score, out var dontPushReason);
                     if (shouldPush)
                     {
+                        counters.IncrementPushAttempt();
                         var message = BuildPushMessage(runId, input, score);
                         var pushAttempt = await PushAndLogAsync(message, now, cancellationToken);
                         if (pushAttempt.Recorded)
@@ -108,12 +132,24 @@ public sealed class EventScoringService : IEventScoringService
                             input.Event.LastPushSourceCount = score.UniqueSourceCount;
                             if (pushAttempt.Success)
                             {
-                                Interlocked.Increment(ref pushedCount);
+                                counters.IncrementPushSuccess();
                             }
+                            else
+                            {
+                                pushRejectReason = pushAttempt.Error ?? "push_failed_or_skipped";
+                                counters.IncrementRejection(pushAttempt.Error ?? "push_failed_or_skipped");
+                            }
+                        }
+                        else
+                        {
+                            pushRejectReason = pushAttempt.Error ?? "push_log_exists";
+                            counters.IncrementRejection(pushAttempt.Error ?? "push_log_exists");
                         }
                     }
                     else
                     {
+                        pushRejectReason = dontPushReason;
+                        counters.IncrementRejection(dontPushReason);
                         _logger.LogInformation(
                             PushSkippedEventId,
                             "合格事件未推送，事件编号={EventId}，原因={Reason}。",
@@ -127,6 +163,7 @@ public sealed class EventScoringService : IEventScoringService
 
                 input.Event.UpdatedAt = now;
                 await _repository.UpdateEventsAsync([input.Event], cancellationToken);
+                LogScoringDecisionDebug(input.Event, score, judge, judgeGateReason, eligible, eligible ? pushRejectReason : BuildEligibilityRejectReason(input.Event));
             }
             finally
             {
@@ -136,8 +173,56 @@ public sealed class EventScoringService : IEventScoringService
 
         await Task.WhenAll(tasks);
 
-        return new EventScoringRunResult(inputs.Count, Volatile.Read(ref eligibleCount), Volatile.Read(ref pushedCount));
+        var snapshot = counters.Snapshot();
+        _logger.LogInformation(
+            "事件评分推送运行完成。RunId={RunId}，评分事件数={ScoredCount}，黑名单事件数={BlacklistedCount}，合格事件数={EligibleCount}，Judge调用数={JudgeCalledCount}，Judge提升数={JudgePromotedCount}，推送尝试数={PushAttemptCount}，推送成功数={PushSuccessCount}，拒绝分桶={RejectionBuckets}。",
+            runId,
+            inputs.Count,
+            snapshot.BlacklistedCount,
+            snapshot.EligibleCount,
+            snapshot.JudgeCalledCount,
+            snapshot.JudgePromotedCount,
+            snapshot.PushAttemptCount,
+            snapshot.PushSuccessCount,
+            FormatBuckets(snapshot.RejectionBuckets));
+
+        return new EventScoringRunResult(inputs.Count, snapshot.EligibleCount, snapshot.PushSuccessCount);
     }
+
+    private void LogScoringDecisionDebug(EventAggregate eventAggregate, EventScore score, JudgeResult judge, string judgeGateReason, bool eligible, string? rejectReason)
+    {
+        if (!_logger.IsEnabled(LogLevel.Debug))
+        {
+            return;
+        }
+
+        _logger.LogDebug(
+            "事件评分决策。事件编号={EventId}，总分={TotalScore:F2}，覆盖={CoverageScore:F4}，排名={RankScore:F4}，快讯={FlashScore:F4}，新鲜度={FreshnessScore:F4}，趋势={TrendScore:F4}，持续={PersistenceScore:F4}，LLM加成={LlmBoostScore:F4}，重新激活加成={ReactivationBonus:F2}，Heat={HeatValue:F4}，来源数={UniqueSourceCount}，排名来源数={RankedSourceCount}，快讯来源数={FlashSourceCount}，触发原因={TriggerReasons}，JudgeGate={JudgeGateReason}，JudgeImportance={JudgeImportance}，JudgeBoost={JudgeBoost:F4}，合格={Eligible}，拒绝原因={RejectReason}，阶段={CurrentStage}。",
+            eventAggregate.Id,
+            score.TotalScore,
+            score.CoverageScore,
+            score.RankScore,
+            score.FlashScore,
+            score.FreshnessScore,
+            score.TrendScore,
+            score.PersistenceScore,
+            score.LlmBoostScore,
+            score.ReactivationBonus,
+            score.HeatValue,
+            score.UniqueSourceCount,
+            score.RankedSourceCount,
+            score.FlashSourceCount,
+            string.Join(',', score.TriggerReasons),
+            judgeGateReason,
+            judge.Importance,
+            judge.BoostScore,
+            eligible,
+            rejectReason,
+            score.CurrentStage);
+    }
+
+    private static string BuildEligibilityRejectReason(EventAggregate eventAggregate)
+        => eventAggregate.IsBlacklisted ? "blacklisted" : "not_eligible";
 
     private EventScore BuildBaseScore(
         string runId,
@@ -446,7 +531,7 @@ public sealed class EventScoringService : IEventScoringService
                 message.Reason,
                 message.Title,
                 Truncate(message.Content, 500));
-            return new PushAttemptResult(false, false);
+            return new PushAttemptResult(false, false, "push_log_exists");
         }
 
         _logger.LogInformation(
@@ -488,7 +573,7 @@ public sealed class EventScoringService : IEventScoringService
                 result.Error);
         }
 
-        return new PushAttemptResult(result.Success, true);
+        return new PushAttemptResult(result.Success, true, result.Error);
     }
 
     private PushMessage BuildPushMessage(string runId, RunEventScoringInput input, EventScore score)
@@ -649,9 +734,55 @@ public sealed class EventScoringService : IEventScoringService
     private static string Truncate(string value, int maxLength)
         => value.Length <= maxLength ? value : value[..maxLength];
 
+    private static string FormatBuckets(IReadOnlyDictionary<string, int> buckets)
+        => buckets.Count == 0
+            ? "none"
+            : string.Join(',', buckets.OrderBy(bucket => bucket.Key, StringComparer.Ordinal).Select(bucket => $"{bucket.Key}:{bucket.Value}"));
+
     private static double Clamp01(double value) => Math.Clamp(value, 0, 1);
 
     private sealed record ProgressFallback(string Stage, string Summary, IReadOnlyList<EventMilestone> Milestones);
 
-    private sealed record PushAttemptResult(bool Success, bool Recorded);
+    private sealed record PushAttemptResult(bool Success, bool Recorded, string? Error);
+
+    private sealed class ScoringRunCounters
+    {
+        private int _blacklistedCount;
+        private int _eligibleCount;
+        private int _judgeCalledCount;
+        private int _judgePromotedCount;
+        private int _pushAttemptCount;
+        private int _pushSuccessCount;
+        private readonly ConcurrentDictionary<string, int> _rejectionBuckets = new(StringComparer.Ordinal);
+
+        public void IncrementBlacklisted() => Interlocked.Increment(ref _blacklistedCount);
+        public void IncrementEligible() => Interlocked.Increment(ref _eligibleCount);
+        public void IncrementJudgeCalled() => Interlocked.Increment(ref _judgeCalledCount);
+        public void IncrementJudgePromoted() => Interlocked.Increment(ref _judgePromotedCount);
+        public void IncrementPushAttempt() => Interlocked.Increment(ref _pushAttemptCount);
+        public void IncrementPushSuccess() => Interlocked.Increment(ref _pushSuccessCount);
+        public void IncrementRejection(string reason) => _rejectionBuckets.AddOrUpdate(NormalizeReason(reason), 1, (_, count) => count + 1);
+
+        public ScoringRunCounterSnapshot Snapshot()
+            => new(
+                Volatile.Read(ref _blacklistedCount),
+                Volatile.Read(ref _eligibleCount),
+                Volatile.Read(ref _judgeCalledCount),
+                Volatile.Read(ref _judgePromotedCount),
+                Volatile.Read(ref _pushAttemptCount),
+                Volatile.Read(ref _pushSuccessCount),
+                _rejectionBuckets.ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal));
+
+        private static string NormalizeReason(string reason)
+            => string.IsNullOrWhiteSpace(reason) ? "unknown" : reason.Trim();
+    }
+
+    private sealed record ScoringRunCounterSnapshot(
+        int BlacklistedCount,
+        int EligibleCount,
+        int JudgeCalledCount,
+        int JudgePromotedCount,
+        int PushAttemptCount,
+        int PushSuccessCount,
+        IReadOnlyDictionary<string, int> RejectionBuckets);
 }
