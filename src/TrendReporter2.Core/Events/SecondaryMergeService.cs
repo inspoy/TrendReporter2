@@ -196,7 +196,10 @@ public sealed class SecondaryMergeService : ISecondaryMergeService
         var result = await _clusterLlmClient.MatchAsync(new ClusterMatchRequest(
             runId,
             item,
-            [new EventCandidate(candidate.TargetEvent, candidate.Similarity, candidate.MatchedReasons)]), cancellationToken);
+            [new EventCandidate(candidate.TargetEvent, candidate.Similarity, candidate.MatchedReasons)])
+        {
+            IsVirtualItem = true
+        }, cancellationToken);
         return result.Decision == ClusterDecisions.SameEvent && result.EventId == candidate.TargetEvent.Id
             ? EventMergeDecision.SameEvent(result.Confidence, result.Reason ?? "二次归并 LLM 判定为同一事件")
             : EventMergeDecision.RelatedButDistinct(result.Confidence, result.Reason ?? result.Decision);

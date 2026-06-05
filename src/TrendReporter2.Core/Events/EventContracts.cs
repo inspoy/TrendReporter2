@@ -124,7 +124,14 @@ public sealed record DigestCandidate(
 public sealed record ClusterMatchRequest(
     string? RunId,
     ContentItem Item,
-    IReadOnlyList<EventCandidate> Candidates);
+    IReadOnlyList<EventCandidate> Candidates)
+{
+    /// <summary>
+    /// 当为 true 时，表示 Item 是临时构建的虚拟条目，并未实际持久化到 content_item 表中，
+    /// LLM 用量记录中的 ContentItemId 应设为 null，避免外键约束冲突。
+    /// </summary>
+    public bool IsVirtualItem { get; init; }
+}
 
 public sealed record ClusterMatchResult(
     string Decision,

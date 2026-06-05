@@ -285,7 +285,7 @@ public sealed class ClusterLlmClient : IClusterLlmClient
             LlmUsageStages.Cluster,
             _config.Llm.Cluster.Model,
             result.RequestId,
-            request.Item.Id,
+            request.IsVirtualItem ? null : request.Item.Id,
             eventId,
             result.Tokens.InputTokens,
             result.Tokens.OutputTokens,

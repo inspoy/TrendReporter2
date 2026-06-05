@@ -22,11 +22,7 @@ public sealed class TagService : ITagService
     public IReadOnlyList<TagAssignment> FromLlmTags(IEnumerable<TagLlmTag> tags)
     {
         return tags
-            .Select(tag => Normalize(
-                string.IsNullOrWhiteSpace(tag.DisplayName) ? tag.Name : tag.DisplayName,
-                NormalizeCategory(tag.Category),
-                TagSources.Llm,
-                tag.Confidence ?? 0.7))
+            .Select(tag => Normalize(tag.Name, TagCategories.Topic, TagSources.Llm, 0.7))
             .Where(tag => tag is not null)
             .Select(tag => tag!)
             .DistinctBy(tag => tag.Name, StringComparer.OrdinalIgnoreCase)

@@ -38,7 +38,7 @@ public sealed record EventTag(
 
 public sealed record TagLlmRequest(string RunId, ContentItem ContentItem);
 
-public sealed record TagLlmTag(string Name, string? DisplayName = null, string? Category = null, double? Confidence = null);
+public sealed record TagLlmTag(string Name);
 
 public sealed record TagLlmResult(IReadOnlyList<TagAssignment> Tags);
 

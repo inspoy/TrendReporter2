@@ -330,7 +330,7 @@ public sealed class InfrastructureAdapterTests
         var tagHandler = new TestHttpMessageHandler(_ => TestHttpMessageHandler.Json(HttpStatusCode.OK, """
         {
           "id": "chatcmpl-tag-fenced",
-          "choices": [ { "message": { "content": "```json\n{\"tags\":[{\"name\":\"政策\",\"displayName\":\"政策\",\"category\":\"topic\",\"confidence\":0.9}]}\n```" } } ]
+          "choices": [ { "message": { "content": "政策" } } ]
         }
         """));
         var tag = new TagLlmClient(new HttpClient(tagHandler), ConfigWithLlm(), new TagService(), NullLoggerFactory.Instance);
@@ -369,7 +369,7 @@ public sealed class InfrastructureAdapterTests
         var handler = new TestHttpMessageHandler(_ => TestHttpMessageHandler.Json(HttpStatusCode.OK, """
         {
           "id": "chatcmpl-tag-1",
-          "choices": [ { "message": { "content": "{\"tags\":[{\"name\":\"OpenAI\",\"displayName\":\"OpenAI\",\"category\":\"entity\",\"confidence\":0.95},{\"name\":\"监管 风险\",\"category\":\"bad\",\"confidence\":1.2}]}" } } ],
+          "choices": [ { "message": { "content": "OpenAI|监管 风险" } } ],
           "usage": { "prompt_tokens": 200, "completion_tokens": 100, "prompt_tokens_details": { "cached_tokens": 50 } }
         }
         """));
@@ -383,8 +383,8 @@ public sealed class InfrastructureAdapterTests
         var result = await client.GenerateTagsAsync(new TagLlmRequest("run-1", item), CancellationToken.None);
 
         Assert.Equal(2, result.Tags.Count);
-        Assert.Contains(result.Tags, tag => tag.Name == "openai" && tag.Category == TagCategories.Entity && tag.Source == TagSources.Llm);
-        Assert.Contains(result.Tags, tag => tag.Name == "监管-风险" && tag.Category == TagCategories.Topic && tag.Confidence == 1);
+        Assert.Contains(result.Tags, tag => tag.Name == "openai" && tag.Category == TagCategories.Topic && tag.Source == TagSources.Llm);
+        Assert.Contains(result.Tags, tag => tag.Name == "监管-风险" && tag.Category == TagCategories.Topic && tag.Confidence == 0.7);
         Assert.Equal("https://llm.local/v1/chat/completions", handler.Requests.Single().RequestUri?.ToString());
         var usage = Assert.Single(recorder.LlmUsage);
         Assert.Equal(LlmUsageStages.Tagging, usage.Stage);
@@ -405,7 +405,7 @@ public sealed class InfrastructureAdapterTests
         var handler = new TestHttpMessageHandler(_ => TestHttpMessageHandler.Json(HttpStatusCode.OK, """
         {
           "id": "chatcmpl-tag-1",
-          "choices": [ { "message": { "content": "{\"tags\":[{\"name\":\"政策\",\"displayName\":\"政策\",\"category\":\"topic\",\"confidence\":0.9}]}" } } ]
+          "choices": [ { "message": { "content": "政策" } } ]
         }
         """));
         var client = new TagLlmClient(new HttpClient(handler), ConfigWithLlm(reasoningEffort: "off"), new TagService(), NullLoggerFactory.Instance);

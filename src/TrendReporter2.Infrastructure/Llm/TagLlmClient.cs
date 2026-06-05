@@ -268,31 +268,6 @@ public sealed class TagLlmClient : ITagLlmClient
         return _telemetryRecorder.RecordLlmUsageAsync(usage, cancellationToken);
     }
 
-    private static List<TagLlmTag> ParseTags(JArray tagArray)
-    {
-        var tags = new List<TagLlmTag>();
-        foreach (var token in tagArray.OfType<JObject>())
-        {
-            var name = token.Value<string>("name") ?? token.Value<string>("displayName") ?? string.Empty;
-            var displayName = token.Value<string>("displayName");
-            var category = token.Value<string>("category");
-            var confidence = ParseConfidence(token["confidence"]);
-            tags.Add(new TagLlmTag(name, displayName, category, confidence));
-        }
-
-        return tags;
-    }
-
-    private static double? ParseConfidence(JToken? token)
-    {
-        if (token is null || token.Type == JTokenType.Null)
-        {
-            return null;
-        }
-
-        return double.TryParse(token.ToString(), out var value) ? value : null;
-    }
-
     private static bool IsEmptyContent(TagLlmRequest request)
         => string.IsNullOrWhiteSpace(request.ContentItem.Title) &&
             string.IsNullOrWhiteSpace(request.ContentItem.Summary);
