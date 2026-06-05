@@ -168,7 +168,7 @@ public sealed class TagLlmClient : ITagLlmClient
                 new
                 {
                     role = "system",
-                    content = "你是一个新闻标签抽取助手。只返回 JSON 对象，格式为 {\"tags\":[{\"name\":string,\"displayName\":string,\"category\":string,\"confidence\":number}]}。category 只能是 topic、entity、domain、risk。返回 3-5 个对检索有用的短标签。"
+                    content = "你是一个新闻标签抽取助手。根据输入返回 3-5 个对检索有用的短标签，用竖线`|`隔开"
                 },
                 new
                 {
@@ -185,7 +185,7 @@ public sealed class TagLlmClient : ITagLlmClient
                 }
             },
             max_tokens = Math.Max(1, _config.Llm.Tagging.MaxTokens),
-            response_format = new { type = "json_object" },
+            // response_format = new { type = "json_object" },
             reasoning_effort = GetReasoningEffortValue(_config.Llm.Tagging.ReasoningEffort),
             think = ShouldDisableReasoning(_config.Llm.Tagging.ReasoningEffort) ? false : (bool?)null
         };
@@ -209,10 +209,7 @@ public sealed class TagLlmClient : ITagLlmClient
                 return new OpenAiChatParseResult<TagLlmResult>(new TagLlmResult([]), false, "标签 LLM 返回空内容", requestId, tokens);
             }
 
-            var parsed = OpenAiChatJson.ParseAssistantContent(content);
-            var llmTags = parsed["tags"] is JArray tagArray
-                ? ParseTags(tagArray)
-                : [];
+            var llmTags = content.Split('|').Select(t => t.Trim()).Where(t => !string.IsNullOrWhiteSpace(t)).Select(t => new TagLlmTag(t)).ToList();
             var tags = _tagService.FromLlmTags(llmTags);
             if (tags.Count == 0)
             {
@@ -224,7 +221,7 @@ public sealed class TagLlmClient : ITagLlmClient
                 contentItemId,
                 tags.Count,
                 elapsedMs / 1000f,
-                JsonConvert.SerializeObject(tags.GroupBy(t => t.Category).ToDictionary(g => g.Key, g => g.Select(t => t.DisplayName))));
+                content);
             return new OpenAiChatParseResult<TagLlmResult>(new TagLlmResult(tags), true, null, requestId, tokens);
         }
         catch (JsonException ex)
