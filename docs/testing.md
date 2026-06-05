@@ -32,6 +32,12 @@ dotnet test tests/TrendReporter2.Tests/TrendReporter2.Tests.csproj --filter Full
 
 PostgreSQL 仓储和 migration 属于可选集成 profile。仅当环境变量 `TRENDREPORTER2_POSTGRES_TEST_CONNECTION` 存在时，相关测试才连接真实 PostgreSQL，并在临时 schema 中执行迁移和清理；未设置该变量时集成测试直接返回，不影响默认离线测试结果。
 
+本地 LLM smoke test 属于可选集成 profile。仅当环境变量 `TRENDREPORTER2_RUN_LOCAL_LLM_SMOKE=1` 存在时，`LocalLlmSmokeTests` 才读取仓库根目录的 `config.yaml`，使用 `llm.cluster` 配置发起一次 OpenAI-compatible chat completions 调用；未设置该变量时测试直接返回，不影响默认离线测试结果。手动执行命令：
+
+```bash
+TRENDREPORTER2_RUN_LOCAL_LLM_SMOKE=1 dotnet test tests/TrendReporter2.Tests/TrendReporter2.Tests.csproj --filter FullyQualifiedName~LocalLlmSmokeTests
+```
+
 ## 覆盖范围
 
 - `EnrichmentPolicy`：强制信源、完整 hover、弱标题和可识别主体。

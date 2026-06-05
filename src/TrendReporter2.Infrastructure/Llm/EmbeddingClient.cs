@@ -105,10 +105,11 @@ public sealed class EmbeddingClient : IEmbeddingClient
             httpRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _config.Llm.Embedding.ApiKey.Trim());
         }
 
+        var input = EmbeddingTextBuilder.CapText(request.Text, _config.Llm.Embedding.MaxTokens);
         httpRequest.Content = new StringContent(JsonConvert.SerializeObject(new
         {
             model = _config.Llm.Embedding.Model,
-            input = request.Text,
+            input,
             dimensions = _config.Llm.Embedding.Dimensions,
             encoding_format = "float"
         }), Encoding.UTF8, "application/json");

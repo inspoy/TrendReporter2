@@ -416,16 +416,28 @@
           "description": "最大输出 Token 数",
           "default": 2048
         },
+        "reasoningEffort": {
+          "type": "string",
+          "description": "推理/思考力度 — 空字符串(不发送)、off(关闭)、low、medium、high",
+          "default": ""
+        },
         "pricing": {
           "$ref": "#/$defs/LLmPricingConfig",
           "description": "可选 — 每百万 Token 价格，用于成本统计与控制"
+        },
+        "maxParallel": {
+          "type": "integer",
+          "description": "该聊天 LLM 的最大并发请求数",
+          "default": 2,
+          "exclusiveMinimum": 0
         }
       },
       "required": [
         "baseUrl",
         "apiKey",
         "model",
-        "maxTokens"
+        "maxTokens",
+        "maxParallel"
       ]
     },
     "LLmPricingConfig": {
@@ -577,6 +589,12 @@
           "description": "向量召回候选事件数量上限",
           "default": 10,
           "exclusiveMinimum": 0
+        },
+        "maxParallel": {
+          "type": "integer",
+          "description": "Embedding 生成的最大并发请求数",
+          "default": 2,
+          "exclusiveMinimum": 0
         }
       },
       "required": [
@@ -584,6 +602,7 @@
         "apiKey",
         "model",
         "maxTokens",
+        "maxParallel",
         "pricing",
         "version",
         "dimensions",
@@ -705,19 +724,12 @@
           "description": "最大并行增强请求数",
           "default": 3,
           "exclusiveMinimum": 0
-        },
-        "maxParallelLlm": {
-          "type": "integer",
-          "description": "最大并行 LLM 请求数",
-          "default": 2,
-          "exclusiveMinimum": 0
         }
       },
       "required": [
         "timeZone",
         "maxParallelFetch",
-        "maxParallelEnrichment",
-        "maxParallelLlm"
+        "maxParallelEnrichment"
       ]
     }
   }

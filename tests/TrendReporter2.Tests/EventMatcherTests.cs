@@ -74,7 +74,7 @@ public sealed class EventMatcherTests
                     StaleHours = 24
                 }
             },
-            System = new SystemConfig { MaxParallelLlm = 1 }
+            Llm = new LlmConfig { Cluster = new LlmEndpointConfig { MaxParallel = 1 } }
         };
 
     private static ContentItem BuildItem(string id)

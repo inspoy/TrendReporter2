@@ -30,10 +30,28 @@ public sealed class YamlAppConfigLoader : IAppConfigLoader
 
         var yaml = File.ReadAllText(path)
             .Replace("web_extract_url:", "webExtractUrl:", StringComparison.Ordinal);
+        RejectDeprecatedKeys(yaml);
+
         var config = _deserializer.Deserialize<AppConfig>(yaml)
             ?? throw new InvalidOperationException($"配置文件为空: {path}");
 
         AppConfigValidator.Validate(config);
         return config;
+    }
+
+    private static void RejectDeprecatedKeys(string yaml)
+    {
+        var containsDeprecatedKey = yaml
+            .Split('\n')
+            .Any(line => line.TrimStart().StartsWith("maxParallelLlm:", StringComparison.Ordinal));
+        if (!containsDeprecatedKey)
+        {
+            return;
+        }
+
+        throw new AppConfigValidationException(
+        [
+            "system.maxParallelLlm 已废弃，请分别配置 llm.cluster.maxParallel、llm.judge.maxParallel、llm.tagging.maxParallel 和 llm.embedding.maxParallel。"
+        ]);
     }
 }

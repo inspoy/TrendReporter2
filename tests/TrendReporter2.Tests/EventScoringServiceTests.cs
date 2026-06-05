@@ -224,7 +224,7 @@ public sealed class EventScoringServiceTests
                 }
             },
             Filters = new FilterConfig { BlacklistKeywords = blacklistKeywords ?? [] },
-            System = new SystemConfig { MaxParallelLlm = 1 }
+            Llm = new LlmConfig { Judge = new LlmEndpointConfig { MaxParallel = 1 } }
         };
 
     private static ISourceRegistry EmptySourceRegistry()

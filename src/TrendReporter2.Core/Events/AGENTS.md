@@ -22,7 +22,7 @@ Highest-complexity Core area. Converts ingested content into event aggregates, r
 - Scoring applies `EventBlacklistPolicy` before push eligibility and may invoke judge LLM only for eligible or near-eligible events.
 - Digest loading happens through `IEventRepository.LoadDigestCandidatesAsync`; digest flow filters blacklisted events again before pushing.
 - Push dedup keys include event/run/reason context; persistence enforces uniqueness.
-- LLM parallelism is bounded by `System.MaxParallelLlm`.
+- LLM parallelism is bounded by per-client `llm.*.maxParallel` settings.
 
 ## ANTI-PATTERNS
 - Do not persist new event statuses, push types, trigger reasons, or progress stages without constants.

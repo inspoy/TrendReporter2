@@ -144,6 +144,10 @@ public sealed class LlmEndpointConfig
 
     public int MaxTokens { get; init; } = 2048;
 
+    public int MaxParallel { get; init; } = 2;
+
+    public string ReasoningEffort { get; init; } = string.Empty;
+
     public LLmPricingConfig Pricing { get; init; } = new();
 }
 
@@ -165,6 +169,8 @@ public sealed class EmbeddingLlmConfig
     public string Model { get; init; } = string.Empty;
 
     public int MaxTokens { get; init; } = 8192;
+
+    public int MaxParallel { get; init; } = 2;
 
     public LLmPricingConfig Pricing { get; init; } = new();
 
@@ -235,5 +241,4 @@ public sealed class SystemConfig
 
     public int MaxParallelEnrichment { get; init; } = 3;
 
-    public int MaxParallelLlm { get; init; } = 2;
 }

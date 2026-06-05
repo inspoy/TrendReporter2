@@ -22,7 +22,7 @@ public sealed class PostgresEmbeddingRepository : IEmbeddingRepository
         _dataSource = dataSource;
     }
 
-    public async Task<IReadOnlyList<ContentEmbeddingInput>> LoadRunContentEmbeddingInputsAsync(string runId, string model, string version, int dimensions, int limit, CancellationToken cancellationToken)
+    public async Task<IReadOnlyList<ContentEmbeddingInput>> LoadRunContentEmbeddingInputsAsync(string runId, string model, string version, int dimensions, int maxTokens, int limit, CancellationToken cancellationToken)
     {
         if (limit <= 0 || string.IsNullOrWhiteSpace(model))
         {
@@ -42,7 +42,7 @@ public sealed class PostgresEmbeddingRepository : IEmbeddingRepository
         """, new { RunId = runId, Model = model, Version = version, Dimensions = dimensions }, cancellationToken: cancellationToken));
 
         return rows
-            .Select(row => new { Item = ToContentItem(row), Text = EmbeddingTextBuilder.BuildContentText(ToContentItem(row)), row.ExistingSourceTextHash })
+            .Select(row => new { Item = ToContentItem(row), Text = EmbeddingTextBuilder.BuildContentText(ToContentItem(row), maxTokens), row.ExistingSourceTextHash })
             .Where(row => !string.IsNullOrWhiteSpace(row.Text))
             .Select(row => new ContentEmbeddingInput(row.Item, row.Text, EmbeddingTextBuilder.HashSourceText(row.Text)) { })
             .Where(input => rows.First(row => row.Id == input.ContentItem.Id).ExistingSourceTextHash != input.SourceTextHash)
@@ -50,7 +50,7 @@ public sealed class PostgresEmbeddingRepository : IEmbeddingRepository
             .ToList();
     }
 
-    public async Task<IReadOnlyList<EventEmbeddingInput>> LoadRunEventEmbeddingInputsAsync(string runId, string model, string version, int dimensions, int limit, CancellationToken cancellationToken)
+    public async Task<IReadOnlyList<EventEmbeddingInput>> LoadRunEventEmbeddingInputsAsync(string runId, string model, string version, int dimensions, int maxTokens, int limit, CancellationToken cancellationToken)
     {
         if (limit <= 0 || string.IsNullOrWhiteSpace(model))
         {
@@ -90,7 +90,7 @@ public sealed class PostgresEmbeddingRepository : IEmbeddingRepository
                 var first = group.First();
                 var eventAggregate = ToEventAggregate(first);
                 var tags = group.Where(row => !string.IsNullOrWhiteSpace(row.TagId)).Select(ToEventTag).ToList();
-                var text = EmbeddingTextBuilder.BuildEventText(eventAggregate, tags);
+                var text = EmbeddingTextBuilder.BuildEventText(eventAggregate, tags, maxTokens);
                 return new { eventAggregate, tags, text, hash = EmbeddingTextBuilder.HashSourceText(text), first.ExistingSourceTextHash };
             })
             .Where(input => !string.IsNullOrWhiteSpace(input.text) && input.ExistingSourceTextHash != input.hash)

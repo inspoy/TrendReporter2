@@ -88,14 +88,15 @@ public sealed class AppConfigValidatorTests
             },
             Llm = new LlmConfig
             {
-                Cluster = new LlmEndpointConfig { Pricing = new LLmPricingConfig { CacheRead = -1 } },
-                Judge = new LlmEndpointConfig { Pricing = new LLmPricingConfig { Input = -1 } },
-                Tagging = new LlmEndpointConfig { Pricing = new LLmPricingConfig { Output = -1 } },
+                Cluster = new LlmEndpointConfig { MaxParallel = 0, Pricing = new LLmPricingConfig { CacheRead = -1 } },
+                Judge = new LlmEndpointConfig { MaxParallel = 0, Pricing = new LLmPricingConfig { Input = -1 } },
+                Tagging = new LlmEndpointConfig { MaxParallel = 0, Pricing = new LLmPricingConfig { Output = -1 } },
                 Embedding = new EmbeddingLlmConfig
                 {
                     BaseUrl = "https://llm.local",
                     Model = "",
                     MaxTokens = 0,
+                    MaxParallel = 0,
                     Pricing = new LLmPricingConfig { Input = -1 },
                     Version = "",
                     Dimensions = 0,
@@ -115,7 +116,6 @@ public sealed class AppConfigValidatorTests
             {
                 MaxParallelFetch = 0,
                 MaxParallelEnrichment = 0,
-                MaxParallelLlm = 0,
                 TimeZone = "Invalid/Zone"
             }
         };
@@ -128,6 +128,10 @@ public sealed class AppConfigValidatorTests
         Assert.Contains("analysis.push.pushTime 包含无效时间 '25:61'，期望格式为 HH:mm。", exception.Errors);
         Assert.Contains("analysis.event.normalizedRankThreshold 必须在 0 到 1 之间。", exception.Errors);
         Assert.Contains("analysis.event.ruleMergeThreshold 必须在 0 到 1 之间。", exception.Errors);
+        Assert.Contains("llm.cluster.maxParallel 必须大于 0。", exception.Errors);
+        Assert.Contains("llm.judge.maxParallel 必须大于 0。", exception.Errors);
+        Assert.Contains("llm.tagging.maxParallel 必须大于 0。", exception.Errors);
+        Assert.Contains("llm.embedding.maxParallel 必须大于 0。", exception.Errors);
         Assert.Contains("llm.cluster.pricing.cacheRead 必须是有限且非负的数字。", exception.Errors);
         Assert.Contains("llm.judge.pricing.input 必须是有限且非负的数字。", exception.Errors);
         Assert.Contains("llm.tagging.pricing.output 必须是有限且非负的数字。", exception.Errors);
@@ -162,6 +166,7 @@ public sealed class AppConfigValidatorTests
                     Dimensions = -1,
                     Version = "",
                     MaxRequestsPerRun = -1,
+                    MaxParallel = 0,
                     VectorSimilarityThreshold = -0.1,
                     VectorCandidateLimit = 0
                 }
@@ -178,6 +183,7 @@ public sealed class AppConfigValidatorTests
         Assert.Contains("llm.embedding.dimensions 当前必须为 768。", exception.Errors);
         Assert.Contains("llm.embedding.version 不能为空。", exception.Errors);
         Assert.Contains("llm.embedding.maxRequestsPerRun 不能为负数。", exception.Errors);
+        Assert.Contains("llm.embedding.maxParallel 必须大于 0。", exception.Errors);
         Assert.Contains("llm.embedding.vectorSimilarityThreshold 必须在 0 到 1 之间。", exception.Errors);
         Assert.Contains("llm.embedding.vectorCandidateLimit 必须大于 0。", exception.Errors);
     }
@@ -333,7 +339,7 @@ public sealed class AppConfigValidatorTests
                 RetryCooldownHours = 12
             },
             Filters = new FilterConfig { BlacklistKeywords = [] },
-            System = new SystemConfig { TimeZone = "Asia/Shanghai", MaxParallelFetch = 4, MaxParallelEnrichment = 3, MaxParallelLlm = 2 }
+            System = new SystemConfig { TimeZone = "Asia/Shanghai", MaxParallelFetch = 4, MaxParallelEnrichment = 3 }
         };
 
     private static AppConfig WithDatabase(AppConfig config, DatabaseConfig database)

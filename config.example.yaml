@@ -58,6 +58,8 @@ llm:
     apiKey: "sk-xxx"
     model: "deepseek-chat"
     maxTokens: 4096
+    maxParallel: 2 # 该 LLM 的最大并发请求数
+    reasoningEffort: "" # 推理/思考力度：""(默认/不发送)、off(关闭)、low、medium、high
     pricing: # 可选，每百万Token的价格，用于统计和控制成本
       cacheRead: 0
       input: 0
@@ -67,11 +69,15 @@ llm:
     apiKey: "sk-xxx"
     model: "qwen3-max"
     maxTokens: 4096
+    maxParallel: 2 # 该 LLM 的最大并发请求数
+    reasoningEffort: "" # 推理/思考力度：""(默认/不发送)、off(关闭)、low、medium、high
   tagging: # 内容标签补充
     baseUrl: ""
     apiKey: ""
     model: "qwen2.5-7b-instruct"
     maxTokens: 512
+    maxParallel: 2 # 该 LLM 的最大并发请求数
+    reasoningEffort: "" # 推理/思考力度：""(默认/不发送)、off(关闭)、low、medium、high
     pricing:
       cacheRead: 0
       input: 0
@@ -81,6 +87,7 @@ llm:
     apiKey: ""
     model: "text-embedding-3-small"
     maxTokens: 8192
+    maxParallel: 2 # embedding 生成的最大并发请求数
     pricing:
       cacheRead: 0
       input: 0
@@ -121,4 +128,3 @@ system:
   timeZone: "Asia/Shanghai"
   maxParallelFetch: 4
   maxParallelEnrichment: 2
-  maxParallelLlm: 2

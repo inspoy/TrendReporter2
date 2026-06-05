@@ -134,12 +134,12 @@ public sealed class EventMatcher : IEventMatcher
         MatchRunCounters counters,
         CancellationToken cancellationToken)
     {
-        var maxParallelLlm = Math.Max(1, _config.System.MaxParallelLlm);
+        var maxParallel = Math.Max(1, _config.Llm.Cluster.MaxParallel);
         _logger.LogInformation(
             "需要计算{Total}次聚类分析，并发数={Parallel}",
-            items.Count, maxParallelLlm
+            items.Count, maxParallel
         );
-        using var semaphore = new SemaphoreSlim(maxParallelLlm);
+        using var semaphore = new SemaphoreSlim(maxParallel);
         var progress = 0;
         var tasks = items.Select(async item =>
         {

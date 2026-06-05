@@ -62,8 +62,8 @@ public sealed class EventScoringService : IEventScoringService
             .ToDictionary(group => group.Key, group => group.OrderBy(snapshot => snapshot.CalculatedAt).ToList(), StringComparer.Ordinal);
 
         var counters = new ScoringRunCounters();
-        var maxParallelLlm = Math.Max(1, _config.System.MaxParallelLlm);
-        using var semaphore = new SemaphoreSlim(maxParallelLlm);
+        var maxParallel = Math.Max(1, _config.Llm.Judge.MaxParallel);
+        using var semaphore = new SemaphoreSlim(maxParallel);
         var tasks = inputs.Select(async input =>
         {
             await semaphore.WaitAsync(cancellationToken);

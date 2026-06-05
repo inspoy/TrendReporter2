@@ -17,9 +17,9 @@ public interface IEmbeddingClient
 
 public interface IEmbeddingRepository
 {
-    Task<IReadOnlyList<ContentEmbeddingInput>> LoadRunContentEmbeddingInputsAsync(string runId, string model, string version, int dimensions, int limit, CancellationToken cancellationToken);
+    Task<IReadOnlyList<ContentEmbeddingInput>> LoadRunContentEmbeddingInputsAsync(string runId, string model, string version, int dimensions, int maxTokens, int limit, CancellationToken cancellationToken);
 
-    Task<IReadOnlyList<EventEmbeddingInput>> LoadRunEventEmbeddingInputsAsync(string runId, string model, string version, int dimensions, int limit, CancellationToken cancellationToken);
+    Task<IReadOnlyList<EventEmbeddingInput>> LoadRunEventEmbeddingInputsAsync(string runId, string model, string version, int dimensions, int maxTokens, int limit, CancellationToken cancellationToken);
 
     Task UpsertContentEmbeddingAsync(ContentEmbeddingRecord embedding, CancellationToken cancellationToken);
 
@@ -61,18 +61,29 @@ public sealed record EmbeddingRunResult(int CandidateCount, int GeneratedCount, 
 
 public static class EmbeddingTextBuilder
 {
-    public static string BuildContentText(ContentItem item)
-        => JoinParts(item.Title, item.Summary);
+    public static string BuildContentText(ContentItem item, int? maxTokens = null)
+        => CapText(JoinParts(item.Title, item.Summary), maxTokens);
 
-    public static string BuildEventText(EventAggregate eventAggregate, IReadOnlyList<EventTag> tags)
-        => JoinParts(
+    public static string BuildEventText(EventAggregate eventAggregate, IReadOnlyList<EventTag> tags, int? maxTokens = null)
+        => CapText(JoinParts(
             eventAggregate.CanonicalTitle,
             eventAggregate.Summary,
             string.Join(' ', eventAggregate.RepresentativeTitles),
             string.Join(' ', eventAggregate.KeyTerms),
             string.Join(' ', eventAggregate.Aliases),
             string.Join(' ', eventAggregate.Entities),
-            string.Join(' ', tags.Select(tag => tag.Tag.DisplayName)));
+            string.Join(' ', tags.Select(tag => tag.Tag.DisplayName))), maxTokens);
+
+    public static string CapText(string text, int? maxTokens)
+    {
+        var normalized = Normalize(text);
+        if (maxTokens is null || maxTokens <= 0 || normalized.Length <= maxTokens.Value)
+        {
+            return normalized;
+        }
+
+        return normalized[..maxTokens.Value].TrimEnd();
+    }
 
     public static string HashSourceText(string text)
         => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(Normalize(text)))).ToLowerInvariant();
@@ -104,7 +115,7 @@ public sealed class EmbeddingService : IEmbeddingService
             runId,
             now,
             maxRequests,
-            loadInputs: limit => _repository.LoadRunContentEmbeddingInputsAsync(runId, _config.Llm.Embedding.Model, _config.Llm.Embedding.Version, _config.Llm.Embedding.Dimensions, limit, cancellationToken),
+            loadInputs: limit => _repository.LoadRunContentEmbeddingInputsAsync(runId, _config.Llm.Embedding.Model, _config.Llm.Embedding.Version, _config.Llm.Embedding.Dimensions, _config.Llm.Embedding.MaxTokens, limit, cancellationToken),
             embedOne: input => EmbedContentAsync(runId, input, now, cancellationToken),
             cancellationToken);
 
@@ -113,7 +124,7 @@ public sealed class EmbeddingService : IEmbeddingService
             runId,
             now,
             maxRequests,
-            loadInputs: limit => _repository.LoadRunEventEmbeddingInputsAsync(runId, _config.Llm.Embedding.Model, _config.Llm.Embedding.Version, _config.Llm.Embedding.Dimensions, limit, cancellationToken),
+            loadInputs: limit => _repository.LoadRunEventEmbeddingInputsAsync(runId, _config.Llm.Embedding.Model, _config.Llm.Embedding.Version, _config.Llm.Embedding.Dimensions, _config.Llm.Embedding.MaxTokens, limit, cancellationToken),
             embedOne: input => EmbedEventAsync(runId, input, now, cancellationToken),
             cancellationToken);
 
@@ -134,7 +145,7 @@ public sealed class EmbeddingService : IEmbeddingService
         var inputs = await loadInputs(limit);
         var generated = 0;
         var failed = 0;
-        using var semaphore = new SemaphoreSlim(Math.Max(1, _config.System.MaxParallelLlm));
+        using var semaphore = new SemaphoreSlim(Math.Max(1, _config.Llm.Embedding.MaxParallel));
         var tasks = inputs.Select(async input =>
         {
             await semaphore.WaitAsync(cancellationToken);

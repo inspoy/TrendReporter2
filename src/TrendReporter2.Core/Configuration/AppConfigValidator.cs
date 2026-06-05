@@ -63,6 +63,10 @@ public static class AppConfigValidator
             }
         }
 
+        Require(config.Llm.Cluster.MaxParallel > 0, "llm.cluster.maxParallel 必须大于 0。");
+        Require(config.Llm.Judge.MaxParallel > 0, "llm.judge.maxParallel 必须大于 0。");
+        Require(config.Llm.Tagging.MaxParallel > 0, "llm.tagging.maxParallel 必须大于 0。");
+        Require(config.Llm.Embedding.MaxParallel > 0, "llm.embedding.maxParallel 必须大于 0。");
         ValidateLlmPricing("llm.cluster.pricing", config.Llm.Cluster.Pricing);
         ValidateLlmPricing("llm.judge.pricing", config.Llm.Judge.Pricing);
         ValidateLlmPricing("llm.tagging.pricing", config.Llm.Tagging.Pricing);
@@ -81,7 +85,6 @@ public static class AppConfigValidator
 
         Require(config.System.MaxParallelFetch > 0, "system.maxParallelFetch 必须大于 0。");
         Require(config.System.MaxParallelEnrichment > 0, "system.maxParallelEnrichment 必须大于 0。");
-        Require(config.System.MaxParallelLlm > 0, "system.maxParallelLlm 必须大于 0。");
 
         try
         {

@@ -142,11 +142,22 @@ public sealed class TagLlmClient : ITagLlmClient
         }
 
         httpRequest.Content = new StringContent(
-            JsonConvert.SerializeObject(BuildPayload(request)),
+            JsonConvert.SerializeObject(BuildPayload(request), new JsonSerializerSettings { NullValueHandling = NullValueHandling.Ignore }),
             Encoding.UTF8,
             "application/json");
         return httpRequest;
     }
+
+    private static bool ShouldDisableReasoning(string? reasoningEffort)
+        => reasoningEffort?.Trim().ToLowerInvariant() is "off" or "none";
+
+    private static string? GetReasoningEffortValue(string? reasoningEffort)
+        => reasoningEffort?.Trim().ToLowerInvariant() switch
+        {
+            null or "" => null,
+            "off" => "none",
+            var v => v
+        };
 
     private object BuildPayload(TagLlmRequest request)
         => new
@@ -174,7 +185,9 @@ public sealed class TagLlmClient : ITagLlmClient
                 }
             },
             max_tokens = Math.Max(1, _config.Llm.Tagging.MaxTokens),
-            response_format = new { type = "json_object" }
+            response_format = new { type = "json_object" },
+            reasoning_effort = GetReasoningEffortValue(_config.Llm.Tagging.ReasoningEffort),
+            think = ShouldDisableReasoning(_config.Llm.Tagging.ReasoningEffort) ? false : (bool?)null
         };
 
     private OpenAiChatParseResult<TagLlmResult> ParseResponse(string responseBody, string contentItemId, long elapsedMs)
@@ -196,7 +209,7 @@ public sealed class TagLlmClient : ITagLlmClient
                 return new OpenAiChatParseResult<TagLlmResult>(new TagLlmResult([]), false, "标签 LLM 返回空内容", requestId, tokens);
             }
 
-            var parsed = JObject.Parse(content);
+            var parsed = OpenAiChatJson.ParseAssistantContent(content);
             var llmTags = parsed["tags"] is JArray tagArray
                 ? ParseTags(tagArray)
                 : [];
@@ -221,7 +234,7 @@ public sealed class TagLlmClient : ITagLlmClient
                 "标签 LLM 返回无效 JSON，内容条目编号={ContentItemId}，耗时{ElapsedSec:F1}s，响应体={Body}",
                 contentItemId,
                 elapsedMs / 1000f,
-                Truncate(NormalizeSnippet(responseBody), 500));
+                Truncate(NormalizeSnippet(responseBody), 1000));
             return new OpenAiChatParseResult<TagLlmResult>(new TagLlmResult([]), false, "标签 LLM 返回无效 JSON", null, tokens);
         }
     }

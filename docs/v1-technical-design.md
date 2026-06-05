@@ -258,7 +258,6 @@ system:
   timeZone: "Asia/Shanghai"
   maxParallelFetch: 4
   maxParallelEnrichment: 2
-  maxParallelLlm: 2
 ```
 
 ### 6.3 关键配置说明

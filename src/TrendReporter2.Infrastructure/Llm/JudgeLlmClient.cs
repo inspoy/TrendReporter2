@@ -116,11 +116,22 @@ public sealed class JudgeLlmClient : IJudgeLlmClient
         }
 
         httpRequest.Content = new StringContent(
-            JsonConvert.SerializeObject(BuildPayload(request)),
+            JsonConvert.SerializeObject(BuildPayload(request), new JsonSerializerSettings { NullValueHandling = NullValueHandling.Ignore }),
             Encoding.UTF8,
             "application/json");
         return httpRequest;
     }
+
+    private static bool ShouldDisableReasoning(string? reasoningEffort)
+        => reasoningEffort?.Trim().ToLowerInvariant() is "off" or "none";
+
+    private static string? GetReasoningEffortValue(string? reasoningEffort)
+        => reasoningEffort?.Trim().ToLowerInvariant() switch
+        {
+            null or "" => null,
+            "off" => "none",
+            var v => v
+        };
 
     private object BuildPayload(JudgeRequest request)
         => new
@@ -164,7 +175,9 @@ public sealed class JudgeLlmClient : IJudgeLlmClient
                 }
             },
             max_tokens = Math.Max(1, _config.Llm.Judge.MaxTokens),
-            response_format = new { type = "json_object" }
+            response_format = new { type = "json_object" },
+            reasoning_effort = GetReasoningEffortValue(_config.Llm.Judge.ReasoningEffort),
+            think = ShouldDisableReasoning(_config.Llm.Judge.ReasoningEffort) ? false : (bool?)null
         };
 
     private OpenAiChatParseResult<JudgeResult> ParseResponse(string responseBody, string eventId, long elapsedMs)
@@ -172,7 +185,7 @@ public sealed class JudgeLlmClient : IJudgeLlmClient
         LlmUsageTokens tokens = new(null, null, null);
         try
         {
-            var root = JObject.Parse(responseBody.Trim('`'));
+            var root = JObject.Parse(responseBody);
             var requestId = root.Value<string>("id");
             tokens = OpenAiUsageParser.Parse(root);
             var content = root["choices"]?.First?["message"]?.Value<string>("content");
@@ -187,7 +200,7 @@ public sealed class JudgeLlmClient : IJudgeLlmClient
                     JudgeResult.Neutral("评判 LLM 返回空内容"), false, "评判 LLM 返回空内容", requestId, tokens);
             }
 
-            var parsed = JObject.Parse(content);
+            var parsed = OpenAiChatJson.ParseAssistantContent(content);
             var labels = parsed["labels"] is JArray labelArray
                 ? ParseLabels(labelArray)
                 : [];

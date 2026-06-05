@@ -4,6 +4,7 @@ using TrendReporter2.Core.Embeddings;
 using TrendReporter2.Core.Enrichment;
 using TrendReporter2.Core.Events;
 using TrendReporter2.Core.Sources;
+using TrendReporter2.Core.Tags;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace TrendReporter2.Tests;
@@ -141,6 +142,31 @@ public sealed class CorePolicyTests
         Assert.Equal(0, repository.EventLoadCount);
     }
 
+    [Fact]
+    public void EmbeddingTextBuilder_AppliesMaxTokensAsCharacterCap()
+    {
+        var item = new ContentItem { Title = "  标题  ", Summary = "第一段\n\n第二段很长" };
+        var contentText = EmbeddingTextBuilder.BuildContentText(item, maxTokens: 6);
+
+        Assert.Equal("标题\n第一段", contentText);
+
+        var eventAggregate = Event(
+            "ev-1",
+            "事件标题",
+            DateTimeOffset.Parse("2026-05-05T08:00:00Z"),
+            ["关键词一", "关键词二"],
+            ["代表标题"]);
+        eventAggregate.Summary = "事件摘要很长";
+        var tags = new[]
+        {
+            new EventTag("ev-1", new Tag { DisplayName = "标签一" }, 0.9, TagSources.Rule, DateTimeOffset.UtcNow)
+        };
+
+        var eventText = EmbeddingTextBuilder.BuildEventText(eventAggregate, tags, maxTokens: 8);
+
+        Assert.Equal("事件标题\n事件摘", eventText);
+    }
+
     private static string CompleteSummary()
         => "OpenAI 发布新的模型能力，多个来源报道该功能已经开始灰度，行业正在评估影响。";
 
@@ -208,8 +234,8 @@ public sealed class CorePolicyTests
             return Task.FromResult<IReadOnlyList<VectorEventCandidate>>(_candidates.Take(limit).ToList());
         }
 
-        public Task<IReadOnlyList<ContentEmbeddingInput>> LoadRunContentEmbeddingInputsAsync(string runId, string model, string version, int dimensions, int limit, CancellationToken cancellationToken) => Task.FromResult<IReadOnlyList<ContentEmbeddingInput>>([]);
-        public Task<IReadOnlyList<EventEmbeddingInput>> LoadRunEventEmbeddingInputsAsync(string runId, string model, string version, int dimensions, int limit, CancellationToken cancellationToken) => Task.FromResult<IReadOnlyList<EventEmbeddingInput>>([]);
+        public Task<IReadOnlyList<ContentEmbeddingInput>> LoadRunContentEmbeddingInputsAsync(string runId, string model, string version, int dimensions, int maxTokens, int limit, CancellationToken cancellationToken) => Task.FromResult<IReadOnlyList<ContentEmbeddingInput>>([]);
+        public Task<IReadOnlyList<EventEmbeddingInput>> LoadRunEventEmbeddingInputsAsync(string runId, string model, string version, int dimensions, int maxTokens, int limit, CancellationToken cancellationToken) => Task.FromResult<IReadOnlyList<EventEmbeddingInput>>([]);
         public Task UpsertContentEmbeddingAsync(ContentEmbeddingRecord embedding, CancellationToken cancellationToken) => Task.CompletedTask;
         public Task UpsertEventEmbeddingAsync(EventEmbeddingRecord embedding, CancellationToken cancellationToken) => Task.CompletedTask;
     }
@@ -242,13 +268,13 @@ public sealed class CorePolicyTests
 
         public int EventLoadCount { get; private set; }
 
-        public Task<IReadOnlyList<ContentEmbeddingInput>> LoadRunContentEmbeddingInputsAsync(string runId, string model, string version, int dimensions, int limit, CancellationToken cancellationToken)
+        public Task<IReadOnlyList<ContentEmbeddingInput>> LoadRunContentEmbeddingInputsAsync(string runId, string model, string version, int dimensions, int maxTokens, int limit, CancellationToken cancellationToken)
         {
             LastContentLimit = limit;
             return Task.FromResult<IReadOnlyList<ContentEmbeddingInput>>(_contentInputs.Take(limit).ToList());
         }
 
-        public Task<IReadOnlyList<EventEmbeddingInput>> LoadRunEventEmbeddingInputsAsync(string runId, string model, string version, int dimensions, int limit, CancellationToken cancellationToken)
+        public Task<IReadOnlyList<EventEmbeddingInput>> LoadRunEventEmbeddingInputsAsync(string runId, string model, string version, int dimensions, int maxTokens, int limit, CancellationToken cancellationToken)
         {
             EventLoadCount++;
             return Task.FromResult<IReadOnlyList<EventEmbeddingInput>>(_eventInputs.Take(limit).ToList());

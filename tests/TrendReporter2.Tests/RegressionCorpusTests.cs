@@ -209,7 +209,7 @@ public sealed class RegressionCorpusTests
                     StaleHours = 24
                 }
             },
-            System = new SystemConfig { MaxParallelLlm = 1 }
+            Llm = new LlmConfig { Cluster = new LlmEndpointConfig { MaxParallel = 1 } }
         };
 
     private sealed class RegressionCase

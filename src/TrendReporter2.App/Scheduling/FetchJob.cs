@@ -299,7 +299,7 @@ public sealed class FetchJob : IFetchJob
         var untaggedItems = await _tagRepository.LoadRunContentItemsWithoutTagsAsync(runId, cancellationToken);
         if (_tagLlmClient.IsConfigured && untaggedItems.Count > 0)
         {
-            using var semaphore = new SemaphoreSlim(_config.System.MaxParallelLlm);
+            using var semaphore = new SemaphoreSlim(Math.Max(1, _config.Llm.Tagging.MaxParallel));
             var tasks = untaggedItems.Select(async item =>
             {
                 await semaphore.WaitAsync(cancellationToken);

@@ -283,6 +283,85 @@ public sealed class InfrastructureAdapterTests
         Assert.Equal(0.0017m, usage.EstimatedCost);
     }
 
+    [Fact]
+    public async Task ClusterLlmClient_ParsesMarkdownFencedJsonContent()
+    {
+        var handler = new TestHttpMessageHandler(_ => TestHttpMessageHandler.Json(HttpStatusCode.OK, """
+        {
+          "id": "chatcmpl-cluster-fenced",
+          "choices": [ { "message": { "content": "```json\n{\n  \"decision\": \"same_event\",\n  \"eventId\": \"ev-1\",\n  \"canonicalTitle\": \"事件一\",\n  \"summary\": \"摘要一\",\n  \"confidence\": 0.87,\n  \"reason\": \"same story\"\n}\n```" } } ]
+        }
+        """));
+        var client = new ClusterLlmClient(new HttpClient(handler), ConfigWithLlm(), NullLoggerFactory.Instance);
+
+        var result = await client.MatchAsync(new ClusterMatchRequest(
+            "run-1",
+            ContentItem(),
+            [new EventCandidate(new EventAggregate { Id = "ev-1", CanonicalTitle = "事件一", Summary = "摘要" }, 0.8, ["title"])]), CancellationToken.None);
+
+        Assert.Equal(ClusterDecisions.SameEvent, result.Decision);
+        Assert.Equal("ev-1", result.EventId);
+        Assert.Equal("事件一", result.CanonicalTitle);
+        Assert.Equal(0.87, result.Confidence);
+    }
+
+    [Fact]
+    public async Task JudgeAndTagLlmClients_ParseMarkdownFencedJsonContent()
+    {
+        var judgeHandler = new TestHttpMessageHandler(_ => TestHttpMessageHandler.Json(HttpStatusCode.OK, """
+        {
+          "id": "chatcmpl-judge-fenced",
+          "choices": [ { "message": { "content": "```json\n{\"importance\":\"normal\",\"boostScore\":0.35,\"labels\":[\"政策\"],\"reason\":\"ok\"}\n```" } } ]
+        }
+        """));
+        var judge = new JudgeLlmClient(new HttpClient(judgeHandler), ConfigWithLlm(), NullLoggerFactory.Instance);
+
+        var judgeResult = await judge.JudgeAsync(new JudgeRequest(
+            "run-1",
+            new EventAggregate { Id = "ev-1", CanonicalTitle = "事件一", Summary = "摘要" },
+            new EventScore { EventId = "ev-1" },
+            [],
+            []), CancellationToken.None);
+
+        Assert.Equal("normal", judgeResult.Importance);
+        Assert.Equal(0.35, judgeResult.BoostScore);
+        Assert.Equal(["政策"], judgeResult.Labels);
+
+        var tagHandler = new TestHttpMessageHandler(_ => TestHttpMessageHandler.Json(HttpStatusCode.OK, """
+        {
+          "id": "chatcmpl-tag-fenced",
+          "choices": [ { "message": { "content": "```json\n{\"tags\":[{\"name\":\"政策\",\"displayName\":\"政策\",\"category\":\"topic\",\"confidence\":0.9}]}\n```" } } ]
+        }
+        """));
+        var tag = new TagLlmClient(new HttpClient(tagHandler), ConfigWithLlm(), new TagService(), NullLoggerFactory.Instance);
+
+        var tagResult = await tag.GenerateTagsAsync(new TagLlmRequest("run-1", ContentItem()), CancellationToken.None);
+
+        var parsedTag = Assert.Single(tagResult.Tags);
+        Assert.Equal("政策", parsedTag.DisplayName);
+        Assert.Equal(TagCategories.Topic, parsedTag.Category);
+    }
+
+    [Fact]
+    public async Task ClusterLlmClient_ReasoningEffortOffSerializesNone()
+    {
+        var handler = new TestHttpMessageHandler(_ => TestHttpMessageHandler.Json(HttpStatusCode.OK, """
+        {
+          "id": "chatcmpl-cluster-1",
+          "choices": [ { "message": { "content": "{\"decision\":\"unrelated\",\"confidence\":0.1,\"reason\":\"distinct\"}" } } ]
+        }
+        """));
+        var client = new ClusterLlmClient(new HttpClient(handler), ConfigWithLlm(reasoningEffort: "off"), NullLoggerFactory.Instance);
+
+        await client.MatchAsync(new ClusterMatchRequest(
+            "run-1",
+            ContentItem(),
+            [new EventCandidate(new EventAggregate { Id = "ev-1", CanonicalTitle = "事件一", Summary = "摘要" }, 0.5, ["title"])]), CancellationToken.None);
+
+        var payload = await ReadRequestPayloadAsync(handler.Requests.Single());
+        Assert.Equal("none", payload.Value<string>("reasoning_effort"));
+    }
+
 
     [Fact]
     public async Task TagLlmClient_ParsesTagsAndRecordsUsage()
@@ -318,6 +397,23 @@ public sealed class InfrastructureAdapterTests
         Assert.Equal(50, usage.CacheReadTokens);
         Assert.True(usage.Success);
         Assert.Equal(0.00035m, usage.EstimatedCost);
+    }
+
+    [Fact]
+    public async Task TagLlmClient_ReasoningEffortOffSerializesNone()
+    {
+        var handler = new TestHttpMessageHandler(_ => TestHttpMessageHandler.Json(HttpStatusCode.OK, """
+        {
+          "id": "chatcmpl-tag-1",
+          "choices": [ { "message": { "content": "{\"tags\":[{\"name\":\"政策\",\"displayName\":\"政策\",\"category\":\"topic\",\"confidence\":0.9}]}" } } ]
+        }
+        """));
+        var client = new TagLlmClient(new HttpClient(handler), ConfigWithLlm(reasoningEffort: "off"), new TagService(), NullLoggerFactory.Instance);
+
+        await client.GenerateTagsAsync(new TagLlmRequest("run-1", ContentItem()), CancellationToken.None);
+
+        var payload = await ReadRequestPayloadAsync(handler.Requests.Single());
+        Assert.Equal("none", payload.Value<string>("reasoning_effort"));
     }
 
     [Fact]
@@ -376,6 +472,23 @@ public sealed class InfrastructureAdapterTests
     }
 
     [Fact]
+    public async Task EmbeddingClient_AppliesEmbeddingMaxTokensToRequestInput()
+    {
+        var handler = new TestHttpMessageHandler(_ => TestHttpMessageHandler.Json(HttpStatusCode.OK, $$"""
+        {
+          "id": "emb-1",
+          "data": [ { "embedding": {{VectorJson(0.1f, 0.2f, 0.3f)}} } ]
+        }
+        """));
+        var client = new EmbeddingClient(new HttpClient(handler), ConfigWithLlm(embeddingMaxTokens: 5), NullLoggerFactory.Instance);
+
+        await client.EmbedAsync(new EmbeddingRequest("run-1", "ci-1", null, "  abcdefgh  "), CancellationToken.None);
+
+        var payload = await ReadRequestPayloadAsync(handler.Requests.Single());
+        Assert.Equal("abcde", payload.Value<string>("input"));
+    }
+
+    [Fact]
     public async Task EmbeddingClient_UnconfiguredFailuresAndWrongDimensionsReturnUnsuccessfulResult()
     {
         var unconfiguredHandler = new TestHttpMessageHandler(_ => TestHttpMessageHandler.Json(HttpStatusCode.OK, "{}"));
@@ -431,6 +544,28 @@ public sealed class InfrastructureAdapterTests
         Assert.Equal("HTTP 502", usage.Error);
     }
 
+    [Fact]
+    public async Task JudgeLlmClient_ReasoningEffortOffSerializesNone()
+    {
+        var handler = new TestHttpMessageHandler(_ => TestHttpMessageHandler.Json(HttpStatusCode.OK, """
+        {
+          "id": "chatcmpl-judge-1",
+          "choices": [ { "message": { "content": "{\"importance\":\"normal\",\"boostScore\":0,\"labels\":[],\"reason\":\"ok\"}" } } ]
+        }
+        """));
+        var client = new JudgeLlmClient(new HttpClient(handler), ConfigWithLlm(reasoningEffort: "off"), NullLoggerFactory.Instance);
+
+        await client.JudgeAsync(new JudgeRequest(
+            "run-1",
+            new EventAggregate { Id = "ev-1", CanonicalTitle = "事件一", Summary = "摘要" },
+            new EventScore { EventId = "ev-1" },
+            [],
+            []), CancellationToken.None);
+
+        var payload = await ReadRequestPayloadAsync(handler.Requests.Single());
+        Assert.Equal("none", payload.Value<string>("reasoning_effort"));
+    }
+
     private static AppConfig Config(string webExtractUrl = "", string pusherUrl = "", string pusherSecret = "", string pusherCate = "default", string channels = "", string dailyHotApiBaseUrl = "", string newsNowBaseUrl = "")
         => new()
         {
@@ -462,7 +597,13 @@ public sealed class InfrastructureAdapterTests
     private static ContentItem ContentItem()
         => new() { Id = "ci-1", Title = "原标题", Url = "https://example.com/original" };
 
-    private static AppConfig ConfigWithLlm()
+    private static async Task<JObject> ReadRequestPayloadAsync(HttpRequestMessage request)
+    {
+        Assert.NotNull(request.Content);
+        return JObject.Parse(await request.Content.ReadAsStringAsync());
+    }
+
+    private static AppConfig ConfigWithLlm(string reasoningEffort = "", int embeddingMaxTokens = 8192)
         => new()
         {
             Llm = new LlmConfig
@@ -471,24 +612,28 @@ public sealed class InfrastructureAdapterTests
                 {
                     BaseUrl = "https://llm.local",
                     Model = "cluster-model",
+                    ReasoningEffort = reasoningEffort,
                     Pricing = new LLmPricingConfig { Input = 1, Output = 1, CacheRead = 1 }
                 },
                 Judge = new LlmEndpointConfig
                 {
                     BaseUrl = "https://llm.local",
                     Model = "judge-model",
+                    ReasoningEffort = reasoningEffort,
                     Pricing = new LLmPricingConfig { Input = 1, Output = 1, CacheRead = 1 }
                 },
                 Tagging = new LlmEndpointConfig
                 {
                     BaseUrl = "https://llm.local",
                     Model = "tag-model",
+                    ReasoningEffort = reasoningEffort,
                     Pricing = new LLmPricingConfig { Input = 1, Output = 1, CacheRead = 1 }
                 },
                 Embedding = new EmbeddingLlmConfig
                 {
                     BaseUrl = "https://llm.local",
                     Model = "embedding-model",
+                    MaxTokens = embeddingMaxTokens,
                     Dimensions = 3,
                     Pricing = new LLmPricingConfig { Input = 1, Output = 1, CacheRead = 1 }
                 }

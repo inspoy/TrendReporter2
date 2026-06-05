@@ -79,7 +79,7 @@ Tests -> App/Core/Infrastructure
 | `IEmbeddingClient` | contract | `Core/Embeddings/EmbeddingContracts.cs` | Embedding API boundary; `IsConfigured` short-circuits when `llm.embedding` is missing. |
 | `IEmbeddingRepository` | contract | `Core/Embeddings/EmbeddingContracts.cs` | Content/event embedding persistence and pgvector recall boundary. |
 | `IEmbeddingService` | contract | `Core/Embeddings/EmbeddingContracts.cs` | Run-scoped content and event embedding generation boundary. |
-| `EmbeddingService` | service | `Core/Embeddings/EmbeddingContracts.cs` | Generates per-run content/event embeddings, bounded by `System.MaxParallelLlm` and `llm.embedding.maxRequestsPerRun`. |
+| `EmbeddingService` | service | `Core/Embeddings/EmbeddingContracts.cs` | Generates per-run content/event embeddings, bounded by `llm.embedding.maxParallel` and `llm.embedding.maxRequestsPerRun`. |
 | `EmbeddingTextBuilder` | helper | `Core/Embeddings/EmbeddingContracts.cs` | Builds content/event embedding text and SHA-256 source-text hash for change detection. |
 | `PostgresEmbeddingRepository` | repository | `Infrastructure/Persistence/PostgresEmbeddingRepository.cs` | Upsert `content_embedding`/`event_embedding`, hash-based skip, pgvector cosine similarity recall against recent and archive events. |
 | `EmbeddingClient` | adapter | `Infrastructure/Llm/EmbeddingClient.cs` | OpenAI-compatible `/v1/embeddings` client; retries up to 3 times, records `llm_usage.stage = embedding`. |
@@ -94,7 +94,7 @@ Tests -> App/Core/Infrastructure
 - Collection names, statuses, decisions, push types, enrichment statuses, trigger reasons, and app state keys are constants or deterministic strings owned by Core/App boundaries.
 - `config.yaml` is local and ignored; keep committed examples in `config.example.yaml`.
 - YAML uses camelCase binding, but `YamlAppConfigLoader` rewrites legacy `web_extract_url` to `webExtractUrl`.
-- Concurrency is config-backed (`MaxParallelFetch`, `MaxParallelEnrichment`, `MaxParallelLlm`) with `SemaphoreSlim`.
+- Concurrency is config-backed (`MaxParallelFetch`, `MaxParallelEnrichment`, per-LLM `MaxParallel`) with `SemaphoreSlim`.
 - Embedding dimensions are currently fixed at 768 by `AppConfigValidator`; mismatched vectors fail the embedding upsert path. pgvector `vector_cosine_ops` is the only HNSW operator currently used (on `event_embedding`).
 - Embedding generation, vector recall, and the embedding LLM client must not fail the fetch run: failures degrade to empty results / rule-only recall / neutral outcomes.
 - `CompositeEventCandidateService` always invokes rule recall first and catches vector-recall exceptions, then dedupes by `Event.Id`, picks the max score, unions matched features, and caps at `analysis.event.candidateLimit`.

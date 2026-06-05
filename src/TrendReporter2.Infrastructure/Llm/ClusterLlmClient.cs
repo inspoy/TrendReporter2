@@ -116,11 +116,22 @@ public sealed class ClusterLlmClient : IClusterLlmClient
         }
 
         httpRequest.Content = new StringContent(
-            JsonConvert.SerializeObject(BuildPayload(request)),
+            JsonConvert.SerializeObject(BuildPayload(request), new JsonSerializerSettings { NullValueHandling = NullValueHandling.Ignore }),
             Encoding.UTF8,
             "application/json");
         return httpRequest;
     }
+
+    private static bool ShouldDisableReasoning(string? reasoningEffort)
+        => reasoningEffort?.Trim().ToLowerInvariant() is "off" or "none";
+
+    private static string? GetReasoningEffortValue(string? reasoningEffort)
+        => reasoningEffort?.Trim().ToLowerInvariant() switch
+        {
+            null or "" => null,
+            "off" => "none",
+            var v => v
+        };
 
     private object BuildPayload(ClusterMatchRequest request)
         => new
@@ -161,7 +172,9 @@ public sealed class ClusterLlmClient : IClusterLlmClient
                 }
             },
             max_tokens = Math.Max(1, _config.Llm.Cluster.MaxTokens),
-            response_format = new { type = "json_object" }
+            response_format = new { type = "json_object" },
+            reasoning_effort = GetReasoningEffortValue(_config.Llm.Cluster.ReasoningEffort),
+            think = ShouldDisableReasoning(_config.Llm.Cluster.ReasoningEffort) ? false : (bool?)null
         };
 
     private OpenAiChatParseResult<ClusterMatchResult> ParseResponse(string responseBody, ClusterMatchRequest request, long elapsedMs)
@@ -184,7 +197,7 @@ public sealed class ClusterLlmClient : IClusterLlmClient
                     ClusterMatchResult.CreateNew("聚类 LLM 返回空内容"), false, "聚类 LLM 返回空内容", requestId, tokens);
             }
 
-            var parsed = JObject.Parse(content.Trim('`'));
+            var parsed = OpenAiChatJson.ParseAssistantContent(content);
             var decision = parsed.Value<string>("decision")?.Trim().ToLowerInvariant();
             var eventId = parsed.Value<string>("eventId")?.Trim();
             var confidence = parsed.Value<double?>("confidence") ?? 0;
