@@ -275,7 +275,7 @@ public sealed class PostgresSchemaMigrationTests
             Assert.Contains("version text not null", body);
             Assert.Contains("dimensions integer not null", body);
             Assert.Contains("source_text_hash text not null", body);
-            Assert.Contains("embedding vector(1536) not null", body);
+            Assert.Contains("embedding vector(768) not null", body);
             Assert.Contains("created_at timestamptz not null", body);
             Assert.Contains("updated_at timestamptz not null", body);
         }

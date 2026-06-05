@@ -172,7 +172,7 @@ public sealed class JudgeLlmClient : IJudgeLlmClient
         LlmUsageTokens tokens = new(null, null, null);
         try
         {
-            var root = JObject.Parse(responseBody);
+            var root = JObject.Parse(responseBody.Trim('`'));
             var requestId = root.Value<string>("id");
             tokens = OpenAiUsageParser.Parse(root);
             var content = root["choices"]?.First?["message"]?.Value<string>("content");

@@ -4,7 +4,7 @@ create table if not exists content_embedding (
     version text not null,
     dimensions integer not null,
     source_text_hash text not null,
-    embedding vector(1536) not null,
+    embedding vector(768) not null,
     created_at timestamptz not null,
     updated_at timestamptz not null,
     constraint pk_content_embedding primary key (content_item_id, model, version, dimensions)
@@ -16,7 +16,7 @@ create table if not exists event_embedding (
     version text not null,
     dimensions integer not null,
     source_text_hash text not null,
-    embedding vector(1536) not null,
+    embedding vector(768) not null,
     created_at timestamptz not null,
     updated_at timestamptz not null,
     constraint pk_event_embedding primary key (event_id, model, version, dimensions)

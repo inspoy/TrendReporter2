@@ -95,7 +95,7 @@ Tests -> App/Core/Infrastructure
 - `config.yaml` is local and ignored; keep committed examples in `config.example.yaml`.
 - YAML uses camelCase binding, but `YamlAppConfigLoader` rewrites legacy `web_extract_url` to `webExtractUrl`.
 - Concurrency is config-backed (`MaxParallelFetch`, `MaxParallelEnrichment`, `MaxParallelLlm`) with `SemaphoreSlim`.
-- Embedding dimensions are currently fixed at 1536 by `AppConfigValidator`; mismatched vectors fail the embedding upsert path. pgvector `vector_cosine_ops` is the only HNSW operator currently used (on `event_embedding`).
+- Embedding dimensions are currently fixed at 768 by `AppConfigValidator`; mismatched vectors fail the embedding upsert path. pgvector `vector_cosine_ops` is the only HNSW operator currently used (on `event_embedding`).
 - Embedding generation, vector recall, and the embedding LLM client must not fail the fetch run: failures degrade to empty results / rule-only recall / neutral outcomes.
 - `CompositeEventCandidateService` always invokes rule recall first and catches vector-recall exceptions, then dedupes by `Event.Id`, picks the max score, unions matched features, and caps at `analysis.event.candidateLimit`.
 

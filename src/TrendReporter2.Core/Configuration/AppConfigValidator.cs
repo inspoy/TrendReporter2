@@ -72,7 +72,7 @@ public static class AppConfigValidator
             Require(!string.IsNullOrWhiteSpace(config.Llm.Embedding.Model), "llm.embedding.model 不能为空。");
         }
 
-        Require(config.Llm.Embedding.Dimensions == 1536, "llm.embedding.dimensions 当前必须为 1536。");
+        Require(config.Llm.Embedding.Dimensions == 768, "llm.embedding.dimensions 当前必须为 768。");
         Require(!string.IsNullOrWhiteSpace(config.Llm.Embedding.Version), "llm.embedding.version 不能为空。");
         Require(config.Llm.Embedding.MaxTokens > 0, "llm.embedding.maxTokens 必须大于 0。");
         Require(config.Llm.Embedding.MaxRequestsPerRun >= 0, "llm.embedding.maxRequestsPerRun 不能为负数。");

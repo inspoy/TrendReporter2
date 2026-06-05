@@ -555,9 +555,9 @@
         },
         "dimensions": {
           "type": "integer",
-          "description": "向量维度，当前迁移固定为 1536",
-          "default": 1536,
-          "const": 1536
+          "description": "向量维度，当前迁移固定为 768",
+          "default": 768,
+          "const": 768
         },
         "maxRequestsPerRun": {
           "type": "integer",

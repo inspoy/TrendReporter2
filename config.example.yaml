@@ -86,7 +86,7 @@ llm:
       input: 0
       output: 0
     version: "v1"
-    dimensions: 1536
+    dimensions: 768
     maxRequestsPerRun: 50
     vectorSimilarityThreshold: 0.78
     vectorCandidateLimit: 10

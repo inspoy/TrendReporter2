@@ -259,7 +259,7 @@ llm:
     baseUrl: ""
     apiKey: ""
     model: ""
-    dimensions: 1536
+    dimensions: 768
     maxTokens: 2048
     pricing:
       cacheRead: 0
@@ -663,7 +663,7 @@ ON event_embedding
 USING hnsw (embedding vector_cosine_ops);
 ```
 
-只有在 `dimensions` 固定且表字段定义为 `vector(1536)` 这类定长向量后才创建索引。
+只有在 `dimensions` 固定且表字段定义为 `vector(768)` 这类定长向量后才创建索引。
 
 ### 8.13 `event_merge_history`
 

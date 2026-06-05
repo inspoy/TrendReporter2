@@ -184,7 +184,7 @@ public sealed class ClusterLlmClient : IClusterLlmClient
                     ClusterMatchResult.CreateNew("聚类 LLM 返回空内容"), false, "聚类 LLM 返回空内容", requestId, tokens);
             }
 
-            var parsed = JObject.Parse(content);
+            var parsed = JObject.Parse(content.Trim('`'));
             var decision = parsed.Value<string>("decision")?.Trim().ToLowerInvariant();
             var eventId = parsed.Value<string>("eventId")?.Trim();
             var confidence = parsed.Value<double?>("confidence") ?? 0;

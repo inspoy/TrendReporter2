@@ -132,7 +132,7 @@ public sealed class AppConfigValidatorTests
         Assert.Contains("llm.judge.pricing.input 必须是有限且非负的数字。", exception.Errors);
         Assert.Contains("llm.tagging.pricing.output 必须是有限且非负的数字。", exception.Errors);
         Assert.Contains("llm.embedding.model 不能为空。", exception.Errors);
-        Assert.Contains("llm.embedding.dimensions 当前必须为 1536。", exception.Errors);
+        Assert.Contains("llm.embedding.dimensions 当前必须为 768。", exception.Errors);
         Assert.Contains("llm.embedding.pricing.input 必须是有限且非负的数字。", exception.Errors);
         Assert.Contains("enrichment.maxRequestsPerRun 不能为负数。", exception.Errors);
         Assert.Contains("system.maxParallelFetch 必须大于 0。", exception.Errors);
@@ -175,7 +175,7 @@ public sealed class AppConfigValidatorTests
         var exception = Assert.Throws<AppConfigValidationException>(() => AppConfigValidator.Validate(config));
 
         Assert.Contains("llm.embedding.model 不能为空。", exception.Errors);
-        Assert.Contains("llm.embedding.dimensions 当前必须为 1536。", exception.Errors);
+        Assert.Contains("llm.embedding.dimensions 当前必须为 768。", exception.Errors);
         Assert.Contains("llm.embedding.version 不能为空。", exception.Errors);
         Assert.Contains("llm.embedding.maxRequestsPerRun 不能为负数。", exception.Errors);
         Assert.Contains("llm.embedding.vectorSimilarityThreshold 必须在 0 到 1 之间。", exception.Errors);

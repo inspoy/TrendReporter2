@@ -170,7 +170,7 @@ public sealed class EmbeddingLlmConfig
 
     public string Version { get; init; } = "v1";
 
-    public int Dimensions { get; init; } = 1536;
+    public int Dimensions { get; init; } = 768;
 
     public int MaxRequestsPerRun { get; init; } = 50;
 

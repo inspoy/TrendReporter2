@@ -160,7 +160,7 @@ public sealed class CorePolicyTests
         => new()
         {
             Analysis = new AnalysisConfig { Event = new EventAnalysisConfig { CandidateLimit = candidateLimit } },
-            Llm = new LlmConfig { Embedding = new EmbeddingLlmConfig { Model = "embedding-model", Dimensions = 1536, VectorCandidateLimit = candidateLimit } }
+            Llm = new LlmConfig { Embedding = new EmbeddingLlmConfig { Model = "embedding-model", Dimensions = 768, VectorCandidateLimit = candidateLimit } }
         };
 
     private sealed class CandidateRepository : IEventRepository
@@ -223,7 +223,7 @@ public sealed class CorePolicyTests
         public Task<EmbeddingResult> EmbedAsync(EmbeddingRequest request, CancellationToken cancellationToken)
         {
             CallCount++;
-            return Task.FromResult(new EmbeddingResult(true, Enumerable.Repeat(0.1f, 1536).ToArray(), 1, $"emb-{CallCount}", null));
+            return Task.FromResult(new EmbeddingResult(true, Enumerable.Repeat(0.1f, 768).ToArray(), 1, $"emb-{CallCount}", null));
         }
     }
 
